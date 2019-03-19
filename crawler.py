@@ -66,13 +66,16 @@ def read_create_db_sql(file_name,cursor):
 
 
 
-
+def insert_site(cursor,domain,robots_content,sitemap_content):
+    cursor.execute("insert into site(domain,robots_content,sitemap_content) values (?, ?, ?)", [domain,robots_content,sitemap_content])
+    cursor.commit()
 
 
 
 if __name__ == '__main__':
     cursor = connect()
-    read_create_db_sql("crawldb.sql",cursor)
+    # read_create_db_sql("crawldb.sql",cursor)
+    insert_site(cursor,"www.nagebabe.com","XXX","PORN")
     cursor.close()
 
 
