@@ -2,6 +2,9 @@
 
 import os
 import dbHelper
+import datetime
+
+
 
 
 from selenium import webdriver
@@ -32,12 +35,20 @@ handled_urls = {}
 
 class Node:
     max_tries = 5
+    page_types = ["HTML","BINARY","DUPLICATE","FRONTIER"]
 
     def __init__(self, site, targetUrl):
         self.site = site
         self.targetUrl = targetUrl
         self.tries = 0
         self.fetched = False
+
+        #@TODO: to discuss with partner
+        self.domain = ""
+        self.robots_content = ""
+        self.sitemap_content = ""
+        self.page_type_code = self.page_types[0]
+
 
         # Holds fetched data
         self.pageData = None
@@ -171,16 +182,26 @@ def initialize_crawler(process_number):
 # This method should store node info to database (with all related data)
 # Some attributes might be added on Node in future class if needed
 def store_node(n):
-    print('storing node....')
+    site_id = dbHelper.insert_site(cursor,n.site,n.robots_content,n.sitemap_content)
+    page_id = dbHelper.insert_page(cursor,site_id,n.page_type_code,n.targetUrl,n.pageData)
+    for link in n.links:
+        ...
+        #@TODO:helper method to query all page_ids by given url; to discuss
+        # dbHelper.insert_link(cursor,page_id,)
+    for image in n.images:
+        #@TODO: what is content_type and how to get filename
+        dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
+
+
+
 
 
 
 
 if __name__ == '__main__':
     cursor = dbHelper.connect()
-    #dbHelper.read_create_db_sql("crawldb.sql",cursor)
-    dbHelper.insert_site(cursor,"www.nagebabe.com","XXX","PORN")
     cursor.close()
+
     print('start')
 
     # SAMPLE...
@@ -193,10 +214,6 @@ if __name__ == '__main__':
         store_node(n)
 
 
-    # cursor = connect()
-    # # read_create_db_sql("crawldb.sql",cursor)
-    # insert_site(cursor,"www.nagebabe.com","XXX","PORN")
-    # cursor.close()
 
 
 
