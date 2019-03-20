@@ -1,20 +1,53 @@
-
-import os
-import pypyodbc
-
-# from selenium import webdriver
-# from selenium.webdriver.common.keys import Keys
-# from selenium.webdriver.chrome.options import Options
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from urllib.parse import urlparse
 
 chrome_path = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'
 
-# def download_and_render_link(url):
-#     options = Options()
-#     options.add_argument("--headless")
-#     options.binary_location = chrome_path
-#
-#     driver = webdriver.Chrome(executable_path=os.path.abspath('chromedriver'), options=options)
-#     driver.get("http://fri.uni-lj.si")
+
+def extract_links(driver):
+
+    elems = driver.find_elements_by_xpath("//a[@href]")
+
+    #@TODO currently only A hrefs are included
+    extr_links = [link.get_attribute("href") for link in elems]
+
+    normalized_urls = []
+    for u in extr_links:
+        normalized = urlparse(u)
+        normalized_urls.append(normalized.geturl())
+
+    return normalized_urls
+
+
+def fetch_url(url, headless = True):
+    options = Options()
+    options.add_argument("--headless")
+    driver = webdriver.Chrome(options=options)
+
+    try:
+        driver.get(url)
+        print(driver.current_url)
+        links = extract_links(driver)
+
+        print(links)
+        print(len(links))
+
+     #   print(driver.page_source)
+        driver.quit()
+
+    except TimeoutException:
+        driver.quit()
+        print('MOVIE NOT YET AVAILABLE!')
+        pass
+    except:
+        driver.quit()
+        raise
 
 
 def extract_data(data):
@@ -73,10 +106,12 @@ def insert_site(cursor,domain,robots_content,sitemap_content):
 
 
 if __name__ == '__main__':
-    cursor = connect()
-    # read_create_db_sql("crawldb.sql",cursor)
-    insert_site(cursor,"www.nagebabe.com","XXX","PORN")
-    cursor.close()
+    print('start')
+    fetch_url("http://www.e-prostor.gov.si/")
+    # cursor = connect()
+    # # read_create_db_sql("crawldb.sql",cursor)
+    # insert_site(cursor,"www.nagebabe.com","XXX","PORN")
+    # cursor.close()
 
 
 
