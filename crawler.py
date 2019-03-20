@@ -1,46 +1,177 @@
 
+
 import os
 import dbHelper
 
-# from selenium import webdriver
-# from selenium.webdriver.common.keys import Keys
-# from selenium.webdriver.chrome.options import Options
 
-chrome_path = 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe'
+from selenium import webdriver
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
+from urllib.parse import urlparse
 
-# def download_and_render_link(url):
-#     options = Options()
-#     options.add_argument("--headless")
-#     options.binary_location = chrome_path
+from multiprocessing import Process, Pool, Queue
+
+
+# CONSTANTS
+MAX_URL_LEN = 255
+ENDING_DOMAIN = 'gov.si'
+
+
+STATUS_OK = 0
+STATUS_TIMEOUT = 1
+STATUS_UN_EXCEPTION = 2
+# SOME GLOBAL VARIABLES
+
+# This dictionary holds all urls which were added to processing or may have been explored
+handled_urls = {}
+
+
+class Node:
+    max_tries = 5
+
+    def __init__(self, site, targetUrl):
+        self.site = site
+        self.targetUrl = targetUrl
+        self.tries = 0
+        self.fetched = False
+
+        # Holds fetched data
+        self.pageData = None
+        self.links = []
+        self.images = []
+
+    # Mark node fetch was not successful
+    def mark_failed(self):
+        self.tries += 1
+
+    def mark_fetched(self):
+        self.fetched = True
+
+    # Indicates if node was fetched too many times
+    # If node fetch fail, we should put the node back to queue and try again, but only if Node is still valid
+    def is_valid(self):
+        return self.max_tries > self.tries
+
+    def print_self(self):
+        print("NODE STATUS: \nFetched: {0}\nLinks: {1}\nImages: {2}".format(self.fetched,len(self.links), len(self.images)))
+
+
+def get_next_urls(driver):
+
+    # @TODO currently only A hrefs are included - we may add some additional??
+    url_parsed_links = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//a[@href]")]
+
+    # Remove links which are not from .gov.si
+    url_parsed_links = [link.geturl() for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
+
+    to_investigate_urls = []
+
+    # Use only urls which were not handled till now
+    for url in url_parsed_links:
+        if url not in handled_urls and len(url) < MAX_URL_LEN:
+            to_investigate_urls.append(url)
+            handled_urls[url] = True
+
+    return to_investigate_urls
+
+#@TODO currenly this is useless
+def extract_images(driver):
+    elems = driver.find_elements_by_xpath("//img[@src]")
+    images = []
+    for i in elems:
+        print('image..')
+        print(i.get_attribute("src"))
+        images.append(i.get_attribute("src"))
+    return []
+
+
+# Fetches one node and populate attributes to it
+def fetch_node(node):
+    try:
+        result = fetch_url(node.targetUrl)
+        if result['status'] == STATUS_OK:
+            node.links = result['links']
+            node.images = result['images']
+            node.pageData = result['page_data']
+            node.mark_fetched()
+        else:
+            # If fetch was NOK, mark node as failed
+            node.mark_failed()
+            return node
+    except:
+        # If exception occur, mark node as failed
+        node.mark_failed()
+    finally:
+        return node
+
+
+# Fetch one url and return dict with info
+def fetch_url(url, headless = True):
+    print("Fetching: {0} ...".format(url))
+    options = Options()
+    options.add_argument("--headless")
+    driver = webdriver.Chrome(options=options)
+
+    try:
+        driver.get(url)
+        links = get_next_urls(driver)
+        images = extract_images(driver)
+
+        return {
+            'status': STATUS_OK,
+            'links': links,
+            'images': images,
+            'page_data': driver.page_source
+        }
+        driver.quit()
+
+    except TimeoutException:
+        driver.quit()
+        return {
+            'status': STATUS_TIMEOUT,  # Timeout
+            'message': 'Timeout'
+        }
+    except:
+        driver.quit()
+        return {
+            'status': STATUS_UN_EXCEPTION,  # Unknown exception
+            'message': 'Timeout'
+        }
+
+#@TODO deprecated
+# def extract_data(data):
+#     return 'not implemented'
+
 #
-#     driver = webdriver.Chrome(executable_path=os.path.abspath('chromedriver'), options=options)
-#     driver.get("http://fri.uni-lj.si")
+#
+# def is_duplicate(page):
+#     return 'not implemented'
+#
+#
+# def get_next_url():
+#     return  'not implemented'
+#
+#
+# def store_new_links():
+#     return 'not implemented'
+#
+#
+# def store_page():
+#     return 'not implemented'
 
 
-def extract_data(data):
-    return 'not implemented'
+def initialize_crawler(process_number):
+    p = Pool(5)
 
 
-def is_duplicate(page):
-    return 'not implemented'
-
-
-def get_next_url():
-    return  'not implemented'
-
-
-def store_new_links():
-    return 'not implemented'
-
-
-def store_page():
-    return 'not implemented'
-
-
-def initialize_crawler(settings):
-    return 'not implemented'
-
-
+# This method should store node info to database (with all related data)
+# Some attributes might be added on Node in future class if needed
+def store_node(n):
+    print('storing node....')
 
 
 
@@ -50,6 +181,22 @@ if __name__ == '__main__':
     #dbHelper.read_create_db_sql("crawldb.sql",cursor)
     dbHelper.insert_site(cursor,"www.nagebabe.com","XXX","PORN")
     cursor.close()
+    print('start')
+
+    # SAMPLE...
+    #@TODO implement queue and take nodes from it.
+    n = Node("http://www.e-prostor.gov.si","http://www.e-prostor.gov.si/")
+    fetch_node(n)
+    n.print_self()
+
+    if n.fetched:
+        store_node(n)
+
+
+    # cursor = connect()
+    # # read_create_db_sql("crawldb.sql",cursor)
+    # insert_site(cursor,"www.nagebabe.com","XXX","PORN")
+    # cursor.close()
 
 
 
