@@ -14,15 +14,16 @@ def extract_links(driver):
 
     elems = driver.find_elements_by_xpath("//a[@href]")
 
-    #@TODO currently only A hrefs are included
+    #@TODO currently only A hrefs are included - we may add some additional
     extr_links = [link.get_attribute("href") for link in elems]
 
-    normalized_urls = []
-    for u in extr_links:
-        normalized = urlparse(u)
-        normalized_urls.append(normalized.geturl())
-
-    return normalized_urls
+    return [urlparse(url).geturl() for url in extr_links]
+    # normalized_urls = []
+    # for u in extr_links:
+    #     normalized = urlparse(u)
+    #     normalized_urls.append(normalized.geturl())
+    #
+    # return normalized_urls
 
 
 def fetch_url(url, headless = True):
