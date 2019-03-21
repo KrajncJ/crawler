@@ -24,6 +24,7 @@ MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
 WORKERS = 5
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
+#INITIAL_URLS = ['http://www.e-prostor.gov.si', 'https://evem.gov.si/']
 
 STATUS_OK = 0
 STATUS_TIMEOUT = 1
@@ -81,12 +82,19 @@ class Worker(Process):
         self.done_q = done_q
 
     def run(self):
+
         while True:
-
+            #print('process running: '+ self.name)
             # Get node to work on it.
-            work_node = self.frontier_q.get()
+            try:
+                work_node = self.frontier_q.get(timeout=10)
+            except Exception as e:
+                # TODO terminate process
+                print("Worker ({0}) has no more data in frontier.\n".format(self.name))
+                super(Worker, self).terminate()
+                continue
 
-            print("{} got to fetch: {}".format(self.name, work_node.targetUrl))
+            print("{} got node: {}".format(self.name, work_node.targetUrl))
 
             # Do work
             fetch_node(work_node)
@@ -94,10 +102,14 @@ class Worker(Process):
             # Check status and place it to correct queue
             if work_node.fetched:
                 self.done_q.put(work_node)
+                # Put all links into frontier
+                for u in work_node.links:
+                   #print('adding to frontier')
+                   self.frontier_q.put(Node(work_node.site, u))
             elif work_node.is_valid:
                 # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
                 self.frontier_q.put(work_node)
-
+            self.frontier_q.task_done()
 
 def get_next_urls(driver):
 
@@ -122,8 +134,8 @@ def extract_images(driver):
     elems = driver.find_elements_by_xpath("//img[@src]")
     images = []
     for i in elems:
-        print('image..')
-        print(i.get_attribute("src"))
+        # print('image..')
+        # print(i.get_attribute("src"))
         images.append(i.get_attribute("src"))
     return []
 
@@ -152,9 +164,10 @@ def fetch_node(node):
 
 # Fetch one url and return dict with info
 def fetch_url(url, headless = True):
-    print("Fetching: {0} ...".format(url))
 
-    options = Options()
+   # print("Fetching: {0} ...".format(url))
+
+    options = webdriver.ChromeOptions()
     options.add_argument('--headless')
 
     driver = webdriver.Chrome(options=options)
@@ -228,13 +241,22 @@ def store_node(n):
 
 
 
-def initialize_crawler(process_number):
-    p = Pool(5)
-
-
 def get_initial_nodes():
     return [Node(url,url) for url in INITIAL_URLS]
 
+
+def at_least_one_worker_active(workers):
+    for w in workers:
+        if w.is_alive():
+            # Do not terminate yet
+            return True
+    return False
+
+
+def print_workers(workers):
+    for w in workers:
+
+        print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
     # cursor = dbHelper.connect()
@@ -251,33 +273,33 @@ if __name__ == '__main__':
     for i in range(WORKERS):
         workers.append(Worker("Worker {0}".format(i), frontier_q, done_q))
 
-    # Start workers
-    for w in workers:
-        w.start()
-
-    time.sleep(3)
-
     # Put initial nodes into queue
     nodes = get_initial_nodes()
     for n in nodes:
         frontier_q.put(n)
+    print('Staring crawler with {0} nodes in frontier ...'.format(frontier_q.qsize()))
 
-    print('Staring crawler with {0} nodes in frontier'.format(frontier_q.qsize()))
+    time.sleep(1)
 
-    time.sleep(3)
+    # Start workers
+    for w in workers:
+        w.start()
 
-    # Temp solution @TODO when to stop crawling. We need to stop workers somehow
-    while done_q.qsize() != len(INITIAL_URLS):
-        time.sleep(1)
-        print('waiting..')
+    while at_least_one_worker_active(workers) or frontier_q.qsize() > 0:
+        print('**** Qsize: {0} ****'.format(str(frontier_q.qsize())))
+        time.sleep(3)
 
-    print('Stopping crawler...')
-    time.sleep(3)
+    # Wait for last pages to fetch, which are currenlty in worker.
+    time.sleep(10)
 
     # Terminate al workers
+    print('Terminating all workers')
     for w in workers:
         w.terminate()
-    
+
+    print('Stopping crawler...')
+    time.sleep(10)
+
 
 
 
