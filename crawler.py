@@ -15,14 +15,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from urllib.parse import urlparse
-
-from multiprocessing import Process, Pool, Queue
+import time
+from multiprocessing import  Manager, Process
 
 
 # CONSTANTS
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
-
+WORKERS = 5
+INITIAL_URLS = ['http://www.e-prostor.gov.si']
 
 STATUS_OK = 0
 STATUS_TIMEOUT = 1
@@ -68,7 +69,34 @@ class Node:
         return self.max_tries > self.tries
 
     def print_self(self):
-        print("NODE STATUS: \nFetched: {0}\nLinks: {1}\nImages: {2}".format(self.fetched,len(self.links), len(self.images)))
+        print("NODE STATUS: \nFetched: {0}\nLinks: {1}\nImages: {2}\nTries: {3}".format(self.fetched,len(self.links), len(self.images), self.tries))
+
+
+class Worker(Process):
+
+    def __init__(self, name, frontier_q, done_q):
+        super(Worker, self).__init__()
+        self.name = name
+        self.frontier_q = frontier_q
+        self.done_q = done_q
+
+    def run(self):
+        while True:
+
+            # Get node to work on it.
+            work_node = self.frontier_q.get()
+
+            print("{} got to fetch: {}".format(self.name, work_node.targetUrl))
+
+            # Do work
+            fetch_node(work_node)
+
+            # Check status and place it to correct queue
+            if work_node.fetched:
+                self.done_q.put(work_node)
+            elif work_node.is_valid:
+                # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
+                self.frontier_q.put(work_node)
 
 
 def get_next_urls(driver):
@@ -113,7 +141,9 @@ def fetch_node(node):
             # If fetch was NOK, mark node as failed
             node.mark_failed()
             return node
-    except:
+    except Exception as e:
+        print('Fetch Node Exception:')
+        print(e)
         # If exception occur, mark node as failed
         node.mark_failed()
     finally:
@@ -123,8 +153,10 @@ def fetch_node(node):
 # Fetch one url and return dict with info
 def fetch_url(url, headless = True):
     print("Fetching: {0} ...".format(url))
+
     options = Options()
-    options.add_argument("--headless")
+    options.add_argument('--headless')
+
     driver = webdriver.Chrome(options=options)
 
     try:
@@ -141,12 +173,15 @@ def fetch_url(url, headless = True):
         driver.quit()
 
     except TimeoutException:
+        print('Fetch Url: Timeout exception')
         driver.quit()
         return {
             'status': STATUS_TIMEOUT,  # Timeout
             'message': 'Timeout'
         }
-    except:
+    except Exception as e:
+        print('Fetch Url Exception occured:')
+        print(e)
         driver.quit()
         return {
             'status': STATUS_UN_EXCEPTION,  # Unknown exception
@@ -175,8 +210,7 @@ def fetch_url(url, headless = True):
 #     return 'not implemented'
 
 
-def initialize_crawler(process_number):
-    p = Pool(5)
+
 
 
 # This method should store node info to database (with all related data)
@@ -194,25 +228,56 @@ def store_node(n):
 
 
 
+def initialize_crawler(process_number):
+    p = Pool(5)
 
 
+def get_initial_nodes():
+    return [Node(url,url) for url in INITIAL_URLS]
 
 
 if __name__ == '__main__':
-    cursor = dbHelper.connect()
-    cursor.close()
+    # cursor = dbHelper.connect()
+    # cursor.close()
 
-    print('start')
+    print('Initializing ...')
+    # Create queues
+    manager = Manager()
+    frontier_q = manager.Queue()
+    done_q = manager.Queue()
 
-    # SAMPLE...
-    #@TODO implement queue and take nodes from it.
-    n = Node("http://www.e-prostor.gov.si","http://www.e-prostor.gov.si/")
-    fetch_node(n)
-    n.print_self()
+    # Create workers
+    workers = []
+    for i in range(WORKERS):
+        workers.append(Worker("Worker {0}".format(i), frontier_q, done_q))
 
-    if n.fetched:
-        store_node(n)
+    # Start workers
+    for w in workers:
+        w.start()
 
+    time.sleep(3)
+
+    # Put initial nodes into queue
+    nodes = get_initial_nodes()
+    for n in nodes:
+        frontier_q.put(n)
+
+    print('Staring crawler with {0} nodes in frontier'.format(frontier_q.qsize()))
+
+    time.sleep(3)
+
+    # Temp solution @TODO when to stop crawling. We need to stop workers somehow
+    while done_q.qsize() != len(INITIAL_URLS):
+        time.sleep(1)
+        print('waiting..')
+
+    print('Stopping crawler...')
+    time.sleep(3)
+
+    # Terminate al workers
+    for w in workers:
+        w.terminate()
+    
 
 
 
