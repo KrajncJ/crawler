@@ -3,7 +3,7 @@
 import os
 import dbHelper
 import datetime
-
+import urllib3
 
 
 
@@ -80,6 +80,7 @@ class Worker(Process):
         self.name = name
         self.frontier_q = frontier_q
         self.done_q = done_q
+        #self.cursor = dbHelper.connect()
 
     def run(self):
 
@@ -102,6 +103,7 @@ class Worker(Process):
             # Check status and place it to correct queue
             if work_node.fetched:
                 self.done_q.put(work_node)
+                store_node(work_node)
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
@@ -137,7 +139,18 @@ def extract_images(driver):
         # print('image..')
         # print(i.get_attribute("src"))
         images.append(i.get_attribute("src"))
+        http = urllib3.PoolManager()
+        image_name = i.get_attribute("src").split("/")[-1]
+        r = http.request('GET', i.get_attribute("src"), preload_content=False)
+        with open(image_name, 'wb') as out:
+            while True:
+                data = r.read()
+                if not data:
+                    break
+                out.write(data)
+
     return []
+
 
 
 # Fetches one node and populate attributes to it
@@ -228,16 +241,19 @@ def fetch_url(url, headless = True):
 
 # This method should store node info to database (with all related data)
 # Some attributes might be added on Node in future class if needed
-def store_node(n):
-    site_id = dbHelper.insert_site(cursor,n.site,n.robots_content,n.sitemap_content)
-    page_id = dbHelper.insert_page(cursor,site_id,n.page_type_code,n.targetUrl,n.pageData)
-    for link in n.links:
-        ...
-        #@TODO:helper method to query all page_ids by given url; to discuss
-        # dbHelper.insert_link(cursor,page_id,)
-    for image in n.images:
-        #@TODO: what is content_type and how to get filename
-        dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
+def store_node(n,cursor):
+    ...
+    #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
+
+#    site_id = dbHelper.insert_site(cursor,n.site,n.robots_content,n.sitemap_content)
+    # page_id = dbHelper.insert_page(cursor,site_id,n.page_type_code,n.targetUrl,n.pageData)
+    # for link in n.links:
+    #     ...
+    #     #@TODO:helper method to query all page_ids by given url; to discuss
+    #     # dbHelper.insert_link(cursor,page_id,)
+    # for image in n.images:
+    #     #@TODO: what is content_type and how to get filename
+    #     dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
 
 
 
@@ -259,8 +275,9 @@ def print_workers(workers):
         print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
-    # cursor = dbHelper.connect()
-    # cursor.close()
+    cursor = dbHelper.connect()
+
+
 
     print('Initializing ...')
     # Create queues
@@ -299,8 +316,7 @@ if __name__ == '__main__':
 
     print('Stopping crawler...')
     time.sleep(10)
-
-
+    cursor.close()
 
 
 
