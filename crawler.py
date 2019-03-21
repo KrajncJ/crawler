@@ -142,7 +142,7 @@ def extract_images(driver):
         http = urllib3.PoolManager()
         image_name = i.get_attribute("src").split("/")[-1]
         r = http.request('GET', i.get_attribute("src"), preload_content=False)
-        with open(image_name, 'wb') as out:
+        with open("images/"+image_name, 'wb') as out:
             while True:
                 data = r.read()
                 if not data:
@@ -241,7 +241,7 @@ def fetch_url(url, headless = True):
 
 # This method should store node info to database (with all related data)
 # Some attributes might be added on Node in future class if needed
-def store_node(n,cursor):
+def store_node(n):
     ...
     #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
 
