@@ -80,7 +80,7 @@ class Worker(Process):
         self.name = name
         self.frontier_q = frontier_q
         self.done_q = done_q
-        #self.cursor = dbHelper.connect()
+        self.DBhelper = None
 
     def run(self):
 
@@ -88,6 +88,8 @@ class Worker(Process):
             #print('process running: '+ self.name)
             # Get node to work on it.
             try:
+                if self.DBhelper is None:
+                    self.DBhelper = dbHelper.New_dbHelper()
                 work_node = self.frontier_q.get(timeout=10)
             except Exception as e:
                 # TODO terminate process
@@ -103,7 +105,7 @@ class Worker(Process):
             # Check status and place it to correct queue
             if work_node.fetched:
                 self.done_q.put(work_node)
-                store_node(work_node)
+                store_node(work_node,self.DBhelper)
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
@@ -241,11 +243,12 @@ def fetch_url(url, headless = True):
 
 # This method should store node info to database (with all related data)
 # Some attributes might be added on Node in future class if needed
-def store_node(n):
+def store_node(n,DBhelper):
     ...
     #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
 
-#    site_id = dbHelper.insert_site(cursor,n.site,n.robots_content,n.sitemap_content)
+    site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
+
     # page_id = dbHelper.insert_page(cursor,site_id,n.page_type_code,n.targetUrl,n.pageData)
     # for link in n.links:
     #     ...
@@ -275,7 +278,6 @@ def print_workers(workers):
         print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
-    cursor = dbHelper.connect()
 
 
 
@@ -316,7 +318,6 @@ if __name__ == '__main__':
 
     print('Stopping crawler...')
     time.sleep(10)
-    cursor.close()
 
 
 
