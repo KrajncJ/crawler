@@ -4,7 +4,7 @@ import os
 import dbHelper
 import datetime
 import urllib3
-
+import hashlib
 
 
 from selenium import webdriver
@@ -189,6 +189,14 @@ def fetch_url(url, headless = True):
 
     try:
         driver.get(url)
+
+        page_html = driver.page_source.encode('utf-8')
+        print("html b4 hash: ")
+        print(page_html)
+
+        page_html_hash = hashlib.md5(page_html)
+        print("Hashed page_html: " + page_html_hash.hexdigest())
+
         links = get_next_urls(driver)
         images = extract_images(driver)
 
