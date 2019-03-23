@@ -5,6 +5,8 @@ import dbHelper
 import datetime
 import urllib3
 import hashlib
+import requests
+
 
 
 from selenium import webdriver
@@ -50,6 +52,8 @@ class Node:
         self.robots_content = ""
         self.sitemap_content = ""
         self.page_type_code = self.page_types[0]
+        self.status_code = ""
+        self.access_time = ""
 
 
         # Holds fetched data
@@ -160,6 +164,9 @@ def fetch_node(node):
     try:
         result = fetch_url(node.targetUrl)
         if result['status'] == STATUS_OK:
+            node.status_code = result['status_code']
+            node.access_time = result['access_time']
+
             node.links = result['links']
             node.images = result['images']
             node.pageData = result['page_data']
@@ -190,6 +197,13 @@ def fetch_url(url, headless = True):
     try:
         driver.get(url)
 
+        r = requests.get(url)
+        print(r.status_code)
+        status_code = r.status_code
+
+        access_time = datetime.datetime.now()
+
+
         page_html = driver.page_source.encode('utf-8')
         print("html b4 hash: ")
         print(page_html)
@@ -204,7 +218,9 @@ def fetch_url(url, headless = True):
             'status': STATUS_OK,
             'links': links,
             'images': images,
-            'page_data': driver.page_source
+            'page_data': driver.page_source,
+            'status_code':status_code,
+            'access_time' : access_time,
         }
         driver.quit()
 
@@ -224,40 +240,14 @@ def fetch_url(url, headless = True):
             'message': 'Timeout'
         }
 
-#@TODO deprecated
-# def extract_data(data):
-#     return 'not implemented'
 
-#
-#
-# def is_duplicate(page):
-#     return 'not implemented'
-#
-#
-# def get_next_url():
-#     return  'not implemented'
-#
-#
-# def store_new_links():
-#     return 'not implemented'
-#
-#
-# def store_page():
-#     return 'not implemented'
-
-
-
-
-
-# This method should store node info to database (with all related data)
-# Some attributes might be added on Node in future class if needed
 def store_node(n,DBhelper):
     ...
     #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
 
     site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
+    page_id = DBhelper.insert_page(site_id,n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
 
-    # page_id = dbHelper.insert_page(cursor,site_id,n.page_type_code,n.targetUrl,n.pageData)
     # for link in n.links:
     #     ...
     #     #@TODO:helper method to query all page_ids by given url; to discuss
