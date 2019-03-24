@@ -21,11 +21,16 @@ import time
 from multiprocessing import  Manager, Process
 
 
+
+
 # CONSTANTS
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
 WORKERS = 5
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
+VALID_DOCS = ['.pdf', '.doc', 'ppt', 'docx', 'pptx']
+
+
 #INITIAL_URLS = ['http://www.e-prostor.gov.si', 'https://evem.gov.si/']
 
 STATUS_OK = 0
@@ -72,6 +77,14 @@ class Node:
     # If node fetch fail, we should put the node back to queue and try again, but only if Node is still valid
     def is_valid(self):
         return self.max_tries > self.tries
+
+    def is_document(self):
+        # If this is a document, we should store it and complete with investigation
+        # in this node.
+        for ending in VALID_DOCS:
+            if self.targetUrl.endswith(ending):
+                return True
+        return False
 
     def print_self(self):
         print("NODE STATUS: \nFetched: {0}\nLinks: {1}\nImages: {2}\nTries: {3}".format(self.fetched,len(self.links), len(self.images), self.tries))
@@ -135,6 +148,14 @@ def get_next_urls(driver):
             to_investigate_urls.append(url)
             handled_urls[url] = True
 
+    docs_urls = []
+    # Just for testing..
+    for url in to_investigate_urls:
+        for ending in VALID_DOCS:
+            if url.endswith(ending):
+                docs_urls.append(url)
+    print('docs urls:')
+    print(docs_urls)
     return to_investigate_urls
 
 #@TODO currenly this is useless
@@ -276,7 +297,6 @@ def print_workers(workers):
         print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
-
 
 
     print('Initializing ...')
