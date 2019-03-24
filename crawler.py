@@ -18,9 +18,9 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from urllib.parse import urlparse
 from urllib import robotparser
+
 import time
 from multiprocessing import  Manager, Process
-
 
 
 
@@ -46,6 +46,7 @@ handled_urls = {}
 class Node:
     max_tries = 5
     page_types = ["HTML","BINARY","DUPLICATE","FRONTIER"]
+
 
     def __init__(self, site, targetUrl, parsed_url=None):
         self.site = site
@@ -74,7 +75,8 @@ class Node:
 
     # Returns true if given node is site.
     def can_fetch(self):
-        if self.parsedUrl.netloc not in robots_dict:
+        #@todo robots_dict for cache? idk
+        if True or self.parsedUrl.netloc not in robots_dict:
             # Fetch robots
             print('robot parser.. ')
             parserLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
@@ -83,15 +85,15 @@ class Node:
                 rp.set_url(parserLink)
                 print('parser linek set: ' + parserLink)
                 rp.read()
-                rrate = rp.request_rate("*")
                 print('requests: ')
-                print(rrate)
-                print('entries')
+
                 print(rp.entries)
-                url_to_check = self.targetUrl+'/typo3/'
+                #@TODO why  is this entries array always empty.
+                url_to_check = self.targetUrl
                 cf = rp.can_fetch("*", url_to_check)
                 print('can fetch:  ' + url_to_check)
                 print(cf)
+               # robots_dict[self.parsedUrl.netloc] = cf
 
             except Exception as e:
                 # Something go wrong.
@@ -99,6 +101,7 @@ class Node:
                 print(e)
                 return False
         else:
+            print('got existing parser..')
             # Do not fetch if instance already exists
             parser = robots_dict[self.parsedUrl.netloc]
             return parser.can_fetch(self.targetUrl)
@@ -306,8 +309,8 @@ def store_node(n,DBhelper):
     ...
     #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
 
-    site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
-    page_id = DBhelper.insert_page(site_id,n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+   # site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
+   # page_id = DBhelper.insert_page(site_id,n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
 
     # for link in n.links:
     #     ...
@@ -316,7 +319,7 @@ def store_node(n,DBhelper):
     # for image in n.images:
     #     #@TODO: what is content_type and how to get filename
     #     dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
-
+    print('storing node..')
 
 
 def get_initial_nodes():
@@ -338,6 +341,14 @@ def print_workers(workers):
 
 if __name__ == '__main__':
 
+    parserLink = "http://www.e-prostor.gov.si/robots.txt"
+    rp = robotparser.RobotFileParser()
+    rp.set_url(parserLink)
+    print('parser linek set: ' + parserLink)
+    rp.read()
+    print('requests: ')
+    print(rp.entries)
+    print('Done..')
 
     print('Initializing ...')
     # Create queues
