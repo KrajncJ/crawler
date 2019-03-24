@@ -17,6 +17,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from urllib.parse import urlparse
+from urllib import robotparser
 import time
 from multiprocessing import  Manager, Process
 
@@ -46,11 +47,14 @@ class Node:
     max_tries = 5
     page_types = ["HTML","BINARY","DUPLICATE","FRONTIER"]
 
-    def __init__(self, site, targetUrl):
+    def __init__(self, site, targetUrl, parsed_url=None):
         self.site = site
         self.targetUrl = targetUrl
+        self.parsedUrl = parsed_url
         self.tries = 0
         self.fetched = False
+        print(parsed_url)
+
 
         #@TODO: to discuss with partner
         self.domain = ""
@@ -65,6 +69,39 @@ class Node:
         self.pageData = None
         self.links = []
         self.images = []
+
+        self.can_fetch()
+
+    # Returns true if given node is site.
+    def can_fetch(self):
+        if self.parsedUrl.netloc not in robots_dict:
+            # Fetch robots
+            print('robot parser.. ')
+            parserLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
+            rp = robotparser.RobotFileParser()
+            try:
+                rp.set_url(parserLink)
+                print('parser linek set: ' + parserLink)
+                rp.read()
+                rrate = rp.request_rate("*")
+                print('requests: ')
+                print(rrate)
+                print('entries')
+                print(rp.entries)
+                url_to_check = self.targetUrl+'/typo3/'
+                cf = rp.can_fetch("*", url_to_check)
+                print('can fetch:  ' + url_to_check)
+                print(cf)
+
+            except Exception as e:
+                # Something go wrong.
+                print('Robots content fetch error... ')
+                print(e)
+                return False
+        else:
+            # Do not fetch if instance already exists
+            parser = robots_dict[self.parsedUrl.netloc]
+            return parser.can_fetch(self.targetUrl)
 
     # Mark node fetch was not successful
     def mark_failed(self):
@@ -126,7 +163,7 @@ class Worker(Process):
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
-                   self.frontier_q.put(Node(work_node.site, u))
+                   self.frontier_q.put(Node(work_node.site, u.geturl(), u))
             elif work_node.is_valid:
                 # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
                 self.frontier_q.put(work_node)
@@ -138,24 +175,26 @@ def get_next_urls(driver):
     url_parsed_links = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//a[@href]")]
 
     # Remove links which are not from .gov.si
-    url_parsed_links = [link.geturl() for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
+    url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
 
     to_investigate_urls = []
 
     # Use only urls which were not handled till now
     for url in url_parsed_links:
-        if url not in handled_urls and len(url) < MAX_URL_LEN:
+        #Get original url
+        target_url = url.geturl()
+        if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
             to_investigate_urls.append(url)
-            handled_urls[url] = True
+            handled_urls[target_url] = True
 
-    docs_urls = []
+    # docs_urls = []
     # Just for testing..
-    for url in to_investigate_urls:
-        for ending in VALID_DOCS:
-            if url.endswith(ending):
-                docs_urls.append(url)
-    print('docs urls:')
-    print(docs_urls)
+    # for url in to_investigate_urls:
+    #     for ending in VALID_DOCS:
+    #         if url.endswith(ending):
+    #             docs_urls.append(url)
+    # print('docs urls:')
+    # print(docs_urls)
     return to_investigate_urls
 
 #@TODO currenly this is useless
@@ -182,6 +221,7 @@ def extract_images(driver):
 
 # Fetches one node and populate attributes to it
 def fetch_node(node):
+
     try:
         result = fetch_url(node.targetUrl)
         if result['status'] == STATUS_OK:
@@ -208,7 +248,7 @@ def fetch_node(node):
 # Fetch one url and return dict with info
 def fetch_url(url, headless = True):
 
-   # print("Fetching: {0} ...".format(url))
+    print("Fetching: {0} ...".format(url))
 
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
@@ -280,7 +320,7 @@ def store_node(n,DBhelper):
 
 
 def get_initial_nodes():
-    return [Node(url,url) for url in INITIAL_URLS]
+    return [Node(url,url, urlparse(url)) for url in INITIAL_URLS]
 
 
 def at_least_one_worker_active(workers):
@@ -304,6 +344,7 @@ if __name__ == '__main__':
     manager = Manager()
     frontier_q = manager.Queue()
     done_q = manager.Queue()
+    robots_dict = manager.dict()
 
     # Create workers
     workers = []
