@@ -92,9 +92,13 @@ class New_dbHelper:
         self.cursor.execute(select_query,[pypyodbc.Binary(data)])
         query_result = self.cursor.fetchall()
 
+        i_filename = filename
+        if len(filename) > 50:
+            i_filename = filename[-48:]
+
         if len(query_result) <= 0:
             insert_query = 'insert into "crawldb"."image"("page_id","filename","content_type","data","accessed_time") values (?, ?, ?, ?, ?) RETURNING id;'
-            last_row = self.cursor.execute(insert_query, [str(page_id),filename,content_type,pypyodbc.Binary(data),str(accessed_time)])
+            last_row = self.cursor.execute(insert_query, [str(page_id),i_filename,content_type,pypyodbc.Binary(data),str(accessed_time)])
             self.cursor.commit()
             for r in last_row:
                 return_id = r[0]
@@ -103,16 +107,25 @@ class New_dbHelper:
         return return_id
 
     def insert_page_data(self, page_id, data_type_code, data):
-        # with open("image.jpg", 'rb') as f:
-        #     hexdata = f.read()
-        last_row = self.cursor.execute(
-            'insert into "crawldb"."page_data"("page_id","data_type_code","data") values (?, ?, ?) RETURNING id',
-            [str(page_id), data_type_code, pypyodbc.Binary(data)])
-        self.cursor.commit()
-        id = None
-        for r in last_row:
-            id = r[0]
-        return id
+        return_id = None
+        select_query = """
+                           SELECT id
+                           FROM "crawldb"."page_data" 
+                           WHERE page_id = ?;"""
+        self.cursor.execute(select_query, [str(page_id)])
+        query_result = self.cursor.fetchall()
+
+        if len(query_result) <= 0:
+            insert_query = 'insert into "crawldb"."page_data"("page_id","data_type_code","data") values (?, ?, ?) RETURNING id'
+            print([str(page_id), data_type_code, pypyodbc.Binary(data)])
+            last_row = self.cursor.execute(insert_query, [str(page_id), data_type_code.upper(), pypyodbc.Binary(data)])
+            self.cursor.commit()
+            for r in last_row:
+                return_id = r[0]
+        else:
+            return_id = query_result[0][0]
+        return return_id
+
 
     def insert_link(self, from_page, to_page):
         return_from_page = None
