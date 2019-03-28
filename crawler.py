@@ -7,7 +7,8 @@ import urllib3
 import hashlib
 import requests
 
-
+from usp.tree import sitemap_tree_for_homepage
+import re
 
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
@@ -42,7 +43,7 @@ STATUS_UN_EXCEPTION = 2
 # This dictionary holds all urls which were added to processing or may have been explored
 handled_urls = {}
 # Dict of robotParsers
-robots_dict = {}
+site_info = {}
 #
 sites_dict = {}
 html_dict = {}
@@ -69,12 +70,12 @@ class Node:
             self.ending = page_type
 
 
+        self.status_code = ""
+
+
         #@TODO: to discuss with partner
-        self.domain = ""
-        self.robotParser = None
         self.robots_content = ""
         self.sitemap_content = ""
-        self.status_code = ""
         self.access_time = ""
 
         # Holds fetched data
@@ -85,13 +86,13 @@ class Node:
     # Returns true if given node is site.
     def can_fetch(self):
         #@todo fix self.targetUrl is empty sometimes
-        if self.parsedUrl.netloc not in robots_dict:
-            print(str(self.parsedUrl.netloc) +  "not in robots_dict")
+        if self.parsedUrl.netloc not in site_info:
+            print(str(self.parsedUrl.netloc) +  "not in site_info")
             # Fetch robots
             print('robot parser.. ')
             parserLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
             rp = robotparser.RobotFileParser()
-            robots_dict[self.parsedUrl.netloc] = rp
+            site_info[self.parsedUrl.netloc] = rp
             try:
                 rp.set_url(parserLink)
                 print('parser linek set: ' + parserLink)
@@ -103,7 +104,7 @@ class Node:
                 cf = rp.can_fetch("*", url_to_check)
                 print('can fetch:  ' + url_to_check)
                 print(cf)
-               # robots_dict[self.parsedUrl.netloc] = cf
+               # site_info[self.parsedUrl.netloc] = cf
 
             except Exception as e:
                 # Something go wrong.
@@ -113,7 +114,7 @@ class Node:
         else:
             print('got existing parser..')
             # Do not fetch if instance already exists
-            parser = robots_dict[self.parsedUrl.netloc]
+            parser = site_info[self.parsedUrl.netloc]
             return parser.can_fetch(self.targetUrl)
 
     # Mark node fetch was not successful
@@ -158,6 +159,9 @@ class Worker(Process):
                 if self.db is None:
                     self.db = dbHelper.New_dbHelper()
                 work_node = self.frontier_q.get(timeout=10)
+
+
+
             except Exception as e:
                 # TODO terminate process
                 print("Worker ({0}) has no more data in frontier.\n".format(self.name))
@@ -165,6 +169,8 @@ class Worker(Process):
                 continue
 
             print("{} got node: {}".format(self.name, work_node.targetUrl))
+
+
 
             # Do work
             fetch_node(work_node)
@@ -176,6 +182,15 @@ class Worker(Process):
                 for u in work_node.links:
                    #print('adding to frontier')
                    #@TODO check if all links are ok with robots.txt if not, dont add
+
+                   # Get site details, and check if site can be accessed.
+                   # @TODO here we also need to get all additional urls from sitemap and add them into frontier
+                   # @TODO site i should return url list
+                   site_i = get_site_info(work_node.site, self.db)
+
+                   # @TODO check if site can be added to frontier
+                   # @TODO remove site from node links
+
                    self.frontier_q.put(Node(u))
                 store_node(work_node,self.db)
 
@@ -339,12 +354,45 @@ def fetch_url(url, headless = True):
             'message': 'Timeout'
         }
 
+def get_site_info(site_url, db):
+    if site_url in site_info:
+        print('site info exists')
+        return site_info[site_url]
+    else:
+        print('site info not exists')
+        get_and_store_site(site_url,db)
+
+
+def get_and_store_site(site_url, db):
+    parserLink = "http://{0}/robots.txt".format(site_url)
+    rp = robotparser.RobotFileParser()
+    rp.set_url("https://slo-tech.com/robots.txt")
+    rp.read()
+    print('rp initialized')
+    print(rp.entries)
+    r = requests.get(parserLink)
+    print('res')
+    print(r)
+    print(r.text)
+    # print('serch')
+    # print(re.search(r'Sitemap: (.*?)\n', r.text).group(1))
+    # print('end srch')
+    # # site_info[site_url] = rp
+
+    if site_url not in sites_dict:
+        # Fetch stuff.
+        try:
+            site_id = db.insert_site(site_url, r.text, '')
+            sites_dict[n.site] = site_id
+            return site_url
+        except:
+            return False
+    else:
+        # get site from db or dict.
+        print('test')
+
 
 def store_node(n,db):
-
-    if n.site not in sites_dict:
-        site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
-        sites_dict[n.site] = site_id
 
     if n.page_type_code == PAGE_TYPES[0]:
         page_html = n.pageData.encode('utf-8')
@@ -385,12 +433,13 @@ def at_least_one_worker_active(workers):
 
 
 if __name__ == '__main__':
+ 
     print('Initializing ...')
     # Create queues
     manager = Manager()
     frontier_q = manager.Queue()
     done_q = manager.Queue()
-    robots_dict = manager.dict()
+    site_info = manager.dict()
 
     # Create workers
     workers = []
