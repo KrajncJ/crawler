@@ -29,23 +29,44 @@ class New_dbHelper:
 
 
     def insert_site(self,domain,robots_content,sitemap_content):
+        return_id = None
         # dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
-        last_row = self.cursor.execute('insert into "crawldb"."site"("domain","robots_content","sitemap_content") values (?, ?, ?) RETURNING id', [domain,robots_content,sitemap_content])
-        self.cursor.commit()
-        id = None
-        for r in last_row:
-            id = r[0]
-        return id
+        select_query = """
+            SELECT id
+            FROM "crawldb"."site" 
+            WHERE domain like '{}%';""".format(domain)
+        self.cursor.execute(select_query)
+        query_result = self.cursor.fetchall()
+
+        if len(query_result) <= 0:
+            insert_query = 'INSERT INTO "crawldb"."site"("domain","robots_content","sitemap_content") VALUES(?, ?, ? ) RETURNING id;'
+            last_row = self.cursor.execute(insert_query, [domain,robots_content,sitemap_content])
+            self.cursor.commit()
+            for r in last_row:
+                return_id = r[0]
+        else:
+            return_id = query_result[0][0]
+        return return_id
 
     def insert_page(self,site_id,page_type_code,url,html_content,http_status_code,accessed_time):
+        return_id = None
         # dbHelper.insert_page(cursor,1,"HTML","www.domena.com/index.php","vsebinastrani",200,str(datetime.datetime.now()))
-        last_row = self.cursor.execute('insert into "crawldb"."page"("site_id","page_type_code","url","html_content","http_status_code","accessed_time") values (?, ?, ?, ?, ?, ?) RETURNING id',
-                       [str(site_id),page_type_code,url,html_content,str(http_status_code),str(accessed_time)])
-        self.cursor.commit()
-        id = None
-        for r in last_row:
-            id = r[0]
-        return id
+        select_query = """
+                   SELECT id
+                   FROM "crawldb"."page" 
+                   WHERE url like '{}%';""".format(url)
+        self.cursor.execute(select_query)
+        query_result = self.cursor.fetchall()
+
+        if len(query_result) <= 0:
+            insert_query = 'insert into "crawldb"."page"("site_id","page_type_code","url","html_content","http_status_code","accessed_time") values (?, ?, ?, ?, ?, ?) RETURNING id'
+            last_row = self.cursor.execute(insert_query, [str(site_id),page_type_code,url,html_content,str(http_status_code),str(accessed_time)])
+            self.cursor.commit()
+            for r in last_row:
+                return_id = r[0]
+        else:
+            return_id = query_result[0][0]
+        return return_id
 
     def insert_image(self,page_id,filename,content_type,data,accessed_time):
         # with open("image.jpg", 'rb') as f:
