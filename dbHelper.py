@@ -69,16 +69,24 @@ class New_dbHelper:
         return return_id
 
     def insert_image(self,page_id,filename,content_type,data,accessed_time):
-        # with open("image.jpg", 'rb') as f:
-        #     hexdata = f.read()
-        # dbHelper.insert_image(cursor,5,"xxx.png","contenttype",hexdata,datetime.datetime.now())
-        last_row = self.cursor.execute('insert into "crawldb"."image"("page_id","filename","content_type","data","accessed_time") values (?, ?, ?, ?, ?) RETURNING id',
-                       [str(page_id),filename,content_type,pypyodbc.Binary(data),str(accessed_time)])
-        self.cursor.commit()
-        id = None
-        for r in last_row:
-            id = r[0]
-        return id
+        return_id = None
+        # dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
+        select_query = """
+                    SELECT id
+                    FROM "crawldb"."image" 
+                    WHERE data = ?;"""
+        self.cursor.execute(select_query,[pypyodbc.Binary(data)])
+        query_result = self.cursor.fetchall()
+
+        if len(query_result) <= 0:
+            insert_query = 'insert into "crawldb"."image"("page_id","filename","content_type","data","accessed_time") values (?, ?, ?, ?, ?) RETURNING id;'
+            last_row = self.cursor.execute(insert_query, [str(page_id),filename,content_type,pypyodbc.Binary(data),str(accessed_time)])
+            self.cursor.commit()
+            for r in last_row:
+                return_id = r[0]
+        else:
+            return_id = query_result[0][0]
+        return return_id
 
     def insert_page_data(self, page_id, data_type_code, data):
         # with open("image.jpg", 'rb') as f:

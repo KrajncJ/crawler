@@ -233,35 +233,16 @@ def extract_images(driver):
     elems = driver.find_elements_by_xpath("//img[@src]")
     images = []
     for i in elems:
-        # print('image..')
-        # print(i.get_attribute("src"))
-        images.append(i.get_attribute("src"))
-
         url = i.get_attribute("src")
         image_name = url.split("/")[-1]
-
+        image_type = image_name.split(".")[-1]
         image_bytes = url_file_to_bytes(url)
-
-
-        # with open("img.png", "rb") as image:
-        #     f = image.read()
-        #     b = bytearray(f)
-        #     print
-        #     b[0]
-
-        # output = io.BytesIO()
-        # img.save(output, format='JPEG')
-        # hex_data = output.getvalue()
-        #
-        # img_data = Image.open(requests.get(url, stream=True).raw)
-
-        images.append((image_name,image_bytes))
-        # print("Image name: " + image_name)
-        # print("Image data: " + str(image_bytes))
-
-
-
-    return []
+        images.append({'name':image_name,
+                       'data':image_bytes,
+                       'type':image_type,
+                       'time_stamp': datetime.datetime.now()
+                       })
+    return images
 
 
 
@@ -355,14 +336,13 @@ def store_node(n,DBhelper):
         sites_dict[n.site] = site_id
 
     page_id = DBhelper.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+    for image in n.images:
+        DBhelper.insert_image(page_id,image['name'],image['type'],image['data'],image['time_stamp'])
 
     # for link in n.links:
-    #     ...
     #     #@TODO:helper method to query all page_ids by given url; to discuss
     #     # dbHelper.insert_link(cursor,page_id,)
-    for image in n.images:
-        #dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
-        print(image)
+
     print('storing node..')
 
 
