@@ -29,8 +29,8 @@ MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
 WORKERS = 5
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
-VALID_DOCS = ['.pdf', '.doc', 'ppt', 'docx', 'pptx']
-
+VALID_DOCS = ['pdf', 'doc', 'ppt', 'docx', 'pptx']
+PAGE_TYPES = ["HTML", "BINARY", "DUPLICATE", "FRONTIER"]
 
 #INITIAL_URLS = ['http://www.e-prostor.gov.si', 'https://evem.gov.si/']
 
@@ -49,7 +49,6 @@ html_dict = {}
 
 class Node:
     max_tries = 5
-    page_types = ["HTML","BINARY","DUPLICATE","FRONTIER"]
 
 
     def __init__(self, site, targetUrl, parsed_url=None):
@@ -58,7 +57,23 @@ class Node:
         self.parsedUrl = parsed_url
         self.tries = 0
         self.fetched = False
-        print(parsed_url)
+        self.page_type_code = PAGE_TYPES[0]
+
+        page_type = parsed_url.path.split('.')[-1]
+
+        print("page_type " + str(page_type))
+
+
+        if (page_type.lower() in VALID_DOCS):
+            print("PAGE IN VALID DOCS")
+            self.page_type_code = PAGE_TYPES[1]
+            self.ending = page_type
+
+
+
+
+
+
 
 
         #@TODO: to discuss with partner
@@ -66,7 +81,6 @@ class Node:
         self.robotParser = None
         self.robots_content = ""
         self.sitemap_content = ""
-        self.page_type_code = self.page_types[0]
         self.status_code = ""
         self.access_time = ""
 
@@ -131,7 +145,7 @@ class Node:
         # in this node.
         for ending in VALID_DOCS:
             if self.targetUrl.endswith(ending):
-                return True
+                return ending
         return False
 
     def print_self(self):
@@ -170,12 +184,13 @@ class Worker(Process):
             # Check status and place it to correct queue
             if work_node.fetched:
                 self.done_q.put(work_node)
-                store_node(work_node,self.db)
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
                    #@TODO check if all links are ok with robots.txt if not, dont add
                    self.frontier_q.put(Node(work_node.site, u.geturl(), u))
+
+                store_node(work_node,self.db)
             elif work_node.is_valid:
                 # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
                 self.frontier_q.put(work_node)
@@ -246,23 +261,40 @@ def extract_images(driver):
 
 
 
+
+
+
 # Fetches one node and populate attributes to it
 def fetch_node(node):
 
     try:
-        result = fetch_url(node.targetUrl)
-        if result['status'] == STATUS_OK:
-            node.status_code = result['status_code']
-            node.access_time = result['access_time']
+        if node.page_type_code == PAGE_TYPES[0]:
+            result = fetch_url(node.targetUrl)
+            if result['status'] == STATUS_OK:
+                node.status_code = result['status_code']
+                node.access_time = result['access_time']
 
-            node.links = result['links']
-            node.images = result['images']
-            node.pageData = result['page_data']
-            node.mark_fetched()
-        else:
-            # If fetch was NOK, mark node as failed
-            node.mark_failed()
-            return node
+                node.links = result['links']
+                node.images = result['images']
+                node.pageData = result['page_data']
+                node.mark_fetched()
+            else:
+                # If fetch was NOK, mark node as failed
+                node.mark_failed()
+                return node
+        elif node.page_type_code == PAGE_TYPES[1]:
+            try:
+                result = url_file_to_bytes(node.targetUrl)
+                r = requests.get(node.targetUrl)
+                node.status_code = r.status_code
+                node.access_time = datetime.datetime.now()
+                node.pageData = result
+                node.mark_fetched()
+            except:
+                node.mark_failed()
+                return node
+
+
     except Exception as e:
         print('Fetch Node Exception:')
         print(e)
@@ -286,17 +318,10 @@ def fetch_url(url, headless = True):
         driver.get(url)
 
         r = requests.get(url)
-        print(r.status_code)
         status_code = r.status_code
-
         access_time = datetime.datetime.now()
 
 
-        # page_html = driver.page_source.encode('utf-8')
-        # print("html b4 hash: ")
-        # print(page_html)
-        # page_html_hash = hashlib.md5(page_html)
-        # print("Hashed page_html: " + page_html_hash.hexdigest())
 
         links = get_next_urls(driver)
         images = extract_images(driver)
@@ -334,28 +359,29 @@ def store_node(n,db):
         site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
         sites_dict[n.site] = site_id
 
-    page_html = n.pageData.encode('utf-8')
-    page_html_hash = hashlib.md5(page_html)
-    # print("Hashed page_html: " + page_html_hash.hexdigest())
 
-    if n.pageData not in html_dict:
-        page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
-        html_dict[page_html_hash] = page_id
-        for image in n.images:
-            db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
-        for link in n.links:
-            # @TODO: ask Jaka if there is simpler way to get url
-            target_url = link.scheme + "://" + link.netloc + link.path
-            # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
-            # we will update other rows in link's page when the page is vistited through frontier
-            to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
-            db.insert_link(page_id, to_page_id)
+    if n.page_type_code == PAGE_TYPES[0]:
+        page_html = n.pageData.encode('utf-8')
+        page_html_hash = hashlib.md5(page_html)
+
+        if page_html_hash not in html_dict:
+            page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+            html_dict[page_html_hash] = page_id
+            for image in n.images:
+                db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
+            for link in n.links:
+                # @TODO: ask Jaka if there is simpler way to get url
+                target_url = link.scheme + "://" + link.netloc + link.path
+                # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
+                # we will update other rows in link's page when the page is vistited through frontier
+                to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
+                db.insert_link(page_id, to_page_id)
+        else:
+            n.page_type_code = "DUPLICATE"
+            db.set_duplicate_page(html_dict[page_html_hash])
     else:
-        n.page_type_code = "DUPLICATE"
-        db.set_duplicate_page(html_dict[page_html_hash])
-
-
-
+        page_id = db.insert_page(sites_dict[n.site], n.page_type_code, n.targetUrl, None, n.status_code,n.access_time)
+        page_data_id = db.insert_page_data(page_id,n.ending,n.pageData)
 
     print('storing node..')
 
