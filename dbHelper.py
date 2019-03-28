@@ -34,7 +34,7 @@ class New_dbHelper:
         select_query = """
             SELECT id
             FROM "crawldb"."site" 
-            WHERE domain like '{}%';""".format(domain)
+            WHERE domain = '{}';""".format(domain)
         self.cursor.execute(select_query)
         query_result = self.cursor.fetchall()
 
@@ -48,13 +48,18 @@ class New_dbHelper:
             return_id = query_result[0][0]
         return return_id
 
+    def set_duplicate_page(self,page_id):
+        update_query = 'UPDATE "crawldb"."page" SET page_type_code=? WHERE id = ?'
+        self.cursor.execute(update_query, ["DUPLICATE",str(page_id)])
+        self.cursor.commit()
+
     def insert_page(self,site_id,page_type_code,url,html_content,http_status_code,accessed_time):
         return_id = None
         # dbHelper.insert_page(cursor,1,"HTML","www.domena.com/index.php","vsebinastrani",200,str(datetime.datetime.now()))
         select_query = """
                    SELECT id,accessed_time
                    FROM "crawldb"."page" 
-                   WHERE url like '{}%';""".format(url)
+                   WHERE url = '{}';""".format(url)
         self.cursor.execute(select_query)
         query_result = self.cursor.fetchall()
 
@@ -68,9 +73,10 @@ class New_dbHelper:
             self.cursor.commit()
             for r in last_row:
                 return_id = r[0]
-        elif(len(query_result) > 0 and accessed_time != None and query_result[0][1] == None):
+        elif(len(query_result) > 0 and access_time != None and query_result[0][1] == None):
             update_query = 'UPDATE "crawldb"."page" SET "site_id" = ?,page_type_code=?,url=?,html_content=?,http_status_code=?,accessed_time=? WHERE id = ?'
-            last_row = self.cursor.execute(update_query, [str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
+            print([str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
+            self.cursor.execute(update_query, [str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
             self.cursor.commit()
             return_id = query_result[0][0]
         else:

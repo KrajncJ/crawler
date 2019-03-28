@@ -45,7 +45,7 @@ handled_urls = {}
 robots_dict = {}
 #
 sites_dict = {}
-
+html_dict = {}
 
 class Node:
     max_tries = 5
@@ -292,12 +292,11 @@ def fetch_url(url, headless = True):
         access_time = datetime.datetime.now()
 
 
-        page_html = driver.page_source.encode('utf-8')
-        print("html b4 hash: ")
-        print(page_html)
-
-        page_html_hash = hashlib.md5(page_html)
-        print("Hashed page_html: " + page_html_hash.hexdigest())
+        # page_html = driver.page_source.encode('utf-8')
+        # print("html b4 hash: ")
+        # print(page_html)
+        # page_html_hash = hashlib.md5(page_html)
+        # print("Hashed page_html: " + page_html_hash.hexdigest())
 
         links = get_next_urls(driver)
         images = extract_images(driver)
@@ -335,17 +334,27 @@ def store_node(n,db):
         site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
         sites_dict[n.site] = site_id
 
-    page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
-    for image in n.images:
-        db.insert_image(page_id,image['name'],image['type'],image['data'],image['time_stamp'])
+    page_html = n.pageData.encode('utf-8')
+    page_html_hash = hashlib.md5(page_html)
+    # print("Hashed page_html: " + page_html_hash.hexdigest())
 
-    for link in n.links:
-        #@TODO: ask Jaka if there is simpler way to get url
-        target_url = link.scheme + "://" + link.netloc + link.path
-        #we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
-        #we will update other rows in link's page when the page is vistited through frontier
-        to_page_id = db.insert_page(sites_dict[n.site],None,target_url,None,None,None)
-        db.insert_link(page_id,to_page_id)
+    if n.pageData not in html_dict:
+        page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+        html_dict[page_html_hash] = page_id
+        for image in n.images:
+            db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
+        for link in n.links:
+            # @TODO: ask Jaka if there is simpler way to get url
+            target_url = link.scheme + "://" + link.netloc + link.path
+            # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
+            # we will update other rows in link's page when the page is vistited through frontier
+            to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
+            db.insert_link(page_id, to_page_id)
+    else:
+        n.page_type_code = "DUPLICATE"
+        db.set_duplicate_page(html_dict[page_html_hash])
+
+
 
 
     print('storing node..')
