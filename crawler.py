@@ -47,18 +47,17 @@ robots_dict = {}
 sites_dict = {}
 html_dict = {}
 
+
 class Node:
     max_tries = 5
     page_types = ["HTML","BINARY","DUPLICATE","FRONTIER"]
 
-
-    def __init__(self, site, targetUrl, parsed_url=None):
-        self.site = site
-        self.targetUrl = targetUrl
+    def __init__(self, parsed_url):
+        self.site = parsed_url.netloc
+        self.targetUrl = parsed_url.geturl()
         self.parsedUrl = parsed_url
         self.tries = 0
         self.fetched = False
-        print(parsed_url)
 
 
         #@TODO: to discuss with partner
@@ -70,15 +69,10 @@ class Node:
         self.status_code = ""
         self.access_time = ""
 
-
         # Holds fetched data
         self.pageData = None
         self.links = []
         self.images = []
-
-        #self.can_fetch()
-
-
 
     # Returns true if given node is site.
     def can_fetch(self):
@@ -175,11 +169,12 @@ class Worker(Process):
                 for u in work_node.links:
                    #print('adding to frontier')
                    #@TODO check if all links are ok with robots.txt if not, dont add
-                   self.frontier_q.put(Node(work_node.site, u.geturl(), u))
+                   self.frontier_q.put(Node(u))
             elif work_node.is_valid:
                 # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
                 self.frontier_q.put(work_node)
             self.frontier_q.task_done()
+
 
 def get_next_urls(driver):
 
@@ -209,6 +204,7 @@ def get_next_urls(driver):
     # print(docs_urls)
     return to_investigate_urls
 
+
 def save_image_locally(url):
     http = urllib3.PoolManager()
     image_name = url.split("/")[-1]
@@ -219,6 +215,7 @@ def save_image_locally(url):
             if not data:
                 break
             out.write(data)
+
 
 def url_file_to_bytes(url):
     http = urllib3.PoolManager()
@@ -243,7 +240,6 @@ def extract_images(driver):
                        'time_stamp': datetime.datetime.now()
                        })
     return images
-
 
 
 # Fetches one node and populate attributes to it
@@ -336,7 +332,6 @@ def store_node(n,db):
 
     page_html = n.pageData.encode('utf-8')
     page_html_hash = hashlib.md5(page_html)
-    # print("Hashed page_html: " + page_html_hash.hexdigest())
 
     if n.pageData not in html_dict:
         page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
@@ -344,8 +339,7 @@ def store_node(n,db):
         for image in n.images:
             db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
         for link in n.links:
-            # @TODO: ask Jaka if there is simpler way to get url
-            target_url = link.scheme + "://" + link.netloc + link.path
+            target_url = link.geturl()
             # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
             # we will update other rows in link's page when the page is vistited through frontier
             to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
@@ -354,14 +348,11 @@ def store_node(n,db):
         n.page_type_code = "DUPLICATE"
         db.set_duplicate_page(html_dict[page_html_hash])
 
-
-
-
     print('storing node..')
 
 
 def get_initial_nodes():
-    return [Node(url,url, urlparse(url)) for url in INITIAL_URLS]
+    return [Node(urlparse(url)) for url in INITIAL_URLS]
 
 
 def at_least_one_worker_active(workers):
@@ -371,11 +362,6 @@ def at_least_one_worker_active(workers):
             return True
     return False
 
-
-def print_workers(workers):
-    for w in workers:
-
-        print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
     print('Initializing ...')
@@ -406,7 +392,7 @@ if __name__ == '__main__':
         print('**** Qsize: {0} ****'.format(str(frontier_q.qsize())))
         time.sleep(3)
 
-    # Wait for last pages to fetch, which are currenlty in worker.
+    # Wait for last pages to fetch, which are currently in worker.
     time.sleep(10)
 
     # Terminate al workers
