@@ -356,8 +356,7 @@ def store_node(n,db):
             for image in n.images:
                 db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
             for link in n.links:
-                # @TODO: ask Jaka if there is simpler way to get url
-                target_url = link.scheme + "://" + link.netloc + link.path
+                target_url = link.geturl()
                 # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
                 # we will update other rows in link's page when the page is vistited through frontier
                 to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
