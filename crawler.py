@@ -41,6 +41,10 @@ STATUS_UN_EXCEPTION = 2
 
 # This dictionary holds all urls which were added to processing or may have been explored
 handled_urls = {}
+# Dict of robotParsers
+robots_dict = {}
+#
+sites_dict = {}
 
 
 class Node:
@@ -59,6 +63,7 @@ class Node:
 
         #@TODO: to discuss with partner
         self.domain = ""
+        self.robotParser = None
         self.robots_content = ""
         self.sitemap_content = ""
         self.page_type_code = self.page_types[0]
@@ -71,24 +76,27 @@ class Node:
         self.links = []
         self.images = []
 
-        self.can_fetch()
+        #self.can_fetch()
+
+
 
     # Returns true if given node is site.
     def can_fetch(self):
-        #@todo robots_dict for cache? idk
-        if True or self.parsedUrl.netloc not in robots_dict:
+        #@todo fix self.targetUrl is empty sometimes
+        if self.parsedUrl.netloc not in robots_dict:
+            print(str(self.parsedUrl.netloc) +  "not in robots_dict")
             # Fetch robots
             print('robot parser.. ')
             parserLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
             rp = robotparser.RobotFileParser()
+            robots_dict[self.parsedUrl.netloc] = rp
             try:
                 rp.set_url(parserLink)
                 print('parser linek set: ' + parserLink)
                 rp.read()
-                print('requests: ')
+                print('entries: ')
+                print(str(rp.default_entry))
 
-                print(rp.entries)
-                #@TODO why  is this entries array always empty.
                 url_to_check = self.targetUrl
                 cf = rp.can_fetch("*", url_to_check)
                 print('can fetch:  ' + url_to_check)
@@ -166,6 +174,7 @@ class Worker(Process):
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
+                   #@TODO check if all links are ok with robots.txt if not, dont add
                    self.frontier_q.put(Node(work_node.site, u.geturl(), u))
             elif work_node.is_valid:
                 # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
@@ -200,7 +209,26 @@ def get_next_urls(driver):
     # print(docs_urls)
     return to_investigate_urls
 
-#@TODO currenly this is useless
+def save_image_locally(url):
+    http = urllib3.PoolManager()
+    image_name = url.split("/")[-1]
+    r = http.request('GET', url, preload_content=False)
+    with open("images/"+image_name, 'wb') as out:
+        while True:
+            data = r.read()
+            if not data:
+                break
+            out.write(data)
+
+def url_file_to_bytes(url):
+    http = urllib3.PoolManager()
+    r = http.request('GET', url, preload_content=False)
+    data = r.read()
+    ba = bytearray(data)
+    by = bytes(ba)
+    return by
+
+
 def extract_images(driver):
     elems = driver.find_elements_by_xpath("//img[@src]")
     images = []
@@ -208,15 +236,30 @@ def extract_images(driver):
         # print('image..')
         # print(i.get_attribute("src"))
         images.append(i.get_attribute("src"))
-        http = urllib3.PoolManager()
-        image_name = i.get_attribute("src").split("/")[-1]
-        r = http.request('GET', i.get_attribute("src"), preload_content=False)
-        with open("images/"+image_name, 'wb') as out:
-            while True:
-                data = r.read()
-                if not data:
-                    break
-                out.write(data)
+
+        url = i.get_attribute("src")
+        image_name = url.split("/")[-1]
+
+        image_bytes = url_file_to_bytes(url)
+
+
+        # with open("img.png", "rb") as image:
+        #     f = image.read()
+        #     b = bytearray(f)
+        #     print
+        #     b[0]
+
+        # output = io.BytesIO()
+        # img.save(output, format='JPEG')
+        # hex_data = output.getvalue()
+        #
+        # img_data = Image.open(requests.get(url, stream=True).raw)
+
+        images.append((image_name,image_bytes))
+        # print("Image name: " + image_name)
+        # print("Image data: " + str(image_bytes))
+
+
 
     return []
 
@@ -306,19 +349,20 @@ def fetch_url(url, headless = True):
 
 
 def store_node(n,DBhelper):
-    ...
-    #dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
 
-   # site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
-   # page_id = DBhelper.insert_page(site_id,n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+    if n.site not in sites_dict:
+        site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
+        sites_dict[n.site] = site_id
+
+    page_id = DBhelper.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
 
     # for link in n.links:
     #     ...
     #     #@TODO:helper method to query all page_ids by given url; to discuss
     #     # dbHelper.insert_link(cursor,page_id,)
-    # for image in n.images:
-    #     #@TODO: what is content_type and how to get filename
-    #     dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
+    for image in n.images:
+        #dbHelper.insert_image(cursor,page_id,image.name,".png",image,datetime.datetime.now())
+        print(image)
     print('storing node..')
 
 
@@ -340,16 +384,6 @@ def print_workers(workers):
         print("{0} status:: \nAlive: {1}\n ----------".format(w.name,w.is_alive()))
 
 if __name__ == '__main__':
-
-    parserLink = "http://www.e-prostor.gov.si/robots.txt"
-    rp = robotparser.RobotFileParser()
-    rp.set_url(parserLink)
-    print('parser linek set: ' + parserLink)
-    rp.read()
-    print('requests: ')
-    print(rp.entries)
-    print('Done..')
-
     print('Initializing ...')
     # Create queues
     manager = Manager()
