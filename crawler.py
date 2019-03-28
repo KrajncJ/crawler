@@ -145,7 +145,7 @@ class Worker(Process):
         self.name = name
         self.frontier_q = frontier_q
         self.done_q = done_q
-        self.DBhelper = None
+        self.db = None
 
     def run(self):
 
@@ -153,8 +153,8 @@ class Worker(Process):
             #print('process running: '+ self.name)
             # Get node to work on it.
             try:
-                if self.DBhelper is None:
-                    self.DBhelper = dbHelper.New_dbHelper()
+                if self.db is None:
+                    self.db = dbHelper.New_dbHelper()
                 work_node = self.frontier_q.get(timeout=10)
             except Exception as e:
                 # TODO terminate process
@@ -170,7 +170,7 @@ class Worker(Process):
             # Check status and place it to correct queue
             if work_node.fetched:
                 self.done_q.put(work_node)
-                store_node(work_node,self.DBhelper)
+                store_node(work_node,self.db)
                 # Put all links into frontier
                 for u in work_node.links:
                    #print('adding to frontier')
@@ -329,19 +329,24 @@ def fetch_url(url, headless = True):
         }
 
 
-def store_node(n,DBhelper):
+def store_node(n,db):
 
     if n.site not in sites_dict:
-        site_id = DBhelper.insert_site(n.site,n.robots_content,n.sitemap_content)
+        site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
         sites_dict[n.site] = site_id
 
-    page_id = DBhelper.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+    page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
     for image in n.images:
-        DBhelper.insert_image(page_id,image['name'],image['type'],image['data'],image['time_stamp'])
+        db.insert_image(page_id,image['name'],image['type'],image['data'],image['time_stamp'])
 
-    # for link in n.links:
-    #     #@TODO:helper method to query all page_ids by given url; to discuss
-    #     # dbHelper.insert_link(cursor,page_id,)
+    for link in n.links:
+        #@TODO: ask Jaka if there is simpler way to get url
+        target_url = link.scheme + "://" + link.netloc + link.path
+        #we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
+        #we will update other rows in link's page when the page is vistited through frontier
+        to_page_id = db.insert_page(sites_dict[n.site],None,target_url,None,None,None)
+        db.insert_link(page_id,to_page_id)
+
 
     print('storing node..')
 

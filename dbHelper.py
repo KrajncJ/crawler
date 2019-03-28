@@ -52,25 +52,33 @@ class New_dbHelper:
         return_id = None
         # dbHelper.insert_page(cursor,1,"HTML","www.domena.com/index.php","vsebinastrani",200,str(datetime.datetime.now()))
         select_query = """
-                   SELECT id
+                   SELECT id,accessed_time
                    FROM "crawldb"."page" 
                    WHERE url like '{}%';""".format(url)
         self.cursor.execute(select_query)
         query_result = self.cursor.fetchall()
 
+        status_code = None if http_status_code == None else str(http_status_code)
+        access_time = None if accessed_time == None else str(accessed_time)
+
         if len(query_result) <= 0:
             insert_query = 'insert into "crawldb"."page"("site_id","page_type_code","url","html_content","http_status_code","accessed_time") values (?, ?, ?, ?, ?, ?) RETURNING id'
-            last_row = self.cursor.execute(insert_query, [str(site_id),page_type_code,url,html_content,str(http_status_code),str(accessed_time)])
+            # last_row = self.cursor.execute(insert_query, [str(site_id),page_type_code,url,html_content,str(http_status_code),str(accessed_time)])
+            last_row = self.cursor.execute(insert_query, [str(site_id),page_type_code,url,html_content,status_code,access_time])
             self.cursor.commit()
             for r in last_row:
                 return_id = r[0]
+        elif(len(query_result) > 0 and accessed_time != None and query_result[0][1] == None):
+            update_query = 'UPDATE "crawldb"."page" SET "site_id" = ?,page_type_code=?,url=?,html_content=?,http_status_code=?,accessed_time=? WHERE id = ?'
+            last_row = self.cursor.execute(update_query, [str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
+            self.cursor.commit()
+            return_id = query_result[0][0]
         else:
             return_id = query_result[0][0]
         return return_id
 
     def insert_image(self,page_id,filename,content_type,data,accessed_time):
         return_id = None
-        # dbHelper.insert_site(cursor,"www.google.com","robots","sitecontent")
         select_query = """
                     SELECT id
                     FROM "crawldb"."image" 
@@ -101,10 +109,24 @@ class New_dbHelper:
         return id
 
     def insert_link(self, from_page, to_page):
-        self.cursor.execute(
-            'insert into "crawldb"."link"("from_page","to_page") values (?, ?)',
-            [str(from_page), str(to_page)])
-        self.cursor.commit()
+        return_from_page = None
+        select_query = """
+                           SELECT from_page,to_page
+                           FROM "crawldb"."link" 
+                           WHERE from_page = {} AND to_page = {};""".format(from_page,to_page)
+        self.cursor.execute(select_query)
+        query_result = self.cursor.fetchall()
+
+        if len(query_result) <= 0:
+            insert_query = 'insert into "crawldb"."link"("from_page","to_page") values (?, ?)'
+            self.cursor.execute(insert_query,[str(from_page), str(to_page)])
+            self.cursor.commit()
+        else:
+            return_from_page = [query_result[0][0],query_result[0][1]]
+        return return_from_page
+
+
+
 
 
 
