@@ -75,7 +75,7 @@ class New_dbHelper:
                 return_id = r[0]
         elif(len(query_result) > 0 and access_time != None and query_result[0][1] == None):
             update_query = 'UPDATE "crawldb"."page" SET "site_id" = ?,page_type_code=?,url=?,html_content=?,http_status_code=?,accessed_time=? WHERE id = ?'
-            print([str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
+            # print([str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
             self.cursor.execute(update_query, [str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
             self.cursor.commit()
             return_id = query_result[0][0]
@@ -123,7 +123,7 @@ class New_dbHelper:
 
         if len(query_result) <= 0:
             insert_query = 'insert into "crawldb"."page_data"("page_id","data_type_code","data") values (?, ?, ?) RETURNING id'
-            print([str(page_id), data_type_code, pypyodbc.Binary(data)])
+            # print([str(page_id), data_type_code, pypyodbc.Binary(data)])
             last_row = self.cursor.execute(insert_query, [str(page_id), data_type_code.upper(), pypyodbc.Binary(data)])
             self.cursor.commit()
             for r in last_row:

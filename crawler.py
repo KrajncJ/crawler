@@ -27,7 +27,7 @@ from multiprocessing import  Manager, Process
 # CONSTANTS
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
-WORKERS = 1
+WORKERS = 4
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
 VALID_DOCS = ['pdf', 'doc', 'ppt', 'docx', 'pptx']
 PAGE_TYPES = ["HTML", "BINARY", "DUPLICATE", "FRONTIER"]
@@ -61,13 +61,11 @@ class Node:
 
         page_type = parsed_url.path.split('.')[-1]
 
-        print("page_type " + str(page_type))
 
         if (page_type.lower() in VALID_DOCS):
-            print("PAGE IN VALID DOCS")
+            print("PAGE IN VALID DOCS type({})".format(str(page_type)))
             self.page_type_code = PAGE_TYPES[1]
             self.ending = page_type
-
 
         self.status_code = ""
 
@@ -75,6 +73,7 @@ class Node:
         #@TODO: to discuss with partner
         self.robots_content = ""
         self.sitemap_content = ""
+        self.sitemap_list = []
         self.access_time = ""
 
         # Holds fetched data
@@ -103,6 +102,8 @@ class Node:
 
                 self.robots_content = str(rs['robots']['robots_text'])
                 self.sitemap_content= str(rs['sitemap']['sitemap_text'])
+                self.sitemap_list   = rs['sitemap']['sitemap_parser']
+
 
             except Exception as e:
                 # Something go wrong.
@@ -111,11 +112,10 @@ class Node:
                 return False
         else:
             if site_info[self.parsedUrl.netloc] == False:
-                print("site already in site_info but has no robots")
+                print("site {} already in site_info but has no robots".format(self.parsedUrl.netloc))
                 return False
             else:
-                print('already got robots and sitemap for this site')
-                print(self.parsedUrl.netloc)
+                print('already got robots and sitemap for this site ({})'.format(self.parsedUrl.netloc))
                 rp = site_info[self.parsedUrl.netloc]['robots']['robots_parser']
                 cf = rp.can_fetch('*',self.targetUrl)
                 print('can fetch:  ' + self.targetUrl + " ? " + str(cf))
@@ -181,10 +181,14 @@ class Worker(Process):
 
             # Check status and place it to correct queue
             if work_node.is_valid() and work_node.fetched:
-                prev_node_tries = 0
                 self.done_q.put(work_node)
                 # Put all links into frontier
-                for u in work_node.links:
+                for sm in work_node.sitemap_list:
+                    parsed_link = urlparse(sm['url'])
+                    sm_node = Node(parsed_link)
+                    self.frontier_q.put(sm_node)
+
+                for i in range(len(work_node.links)):
                    #print('adding to frontier')
                    #@TODO check if all links are ok with robots.txt if not, dont add
 
@@ -195,8 +199,13 @@ class Worker(Process):
 
                    # @TODO check if site can be added to frontier
                    # @TODO remove site from node links
+                    link = work_node.links[i]
+                    new_node = Node(link)
+                    if new_node.is_valid():
+                        self.frontier_q.put(new_node)
+                    else:
+                        work_node.links[i] = None
 
-                   self.frontier_q.put(Node(u))
                 store_node(work_node,self.db)
 
 
@@ -364,7 +373,6 @@ def extract_images(driver):
 
 
 def store_node(n,db):
-
     if n.site not in sites_dict:
         site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
         sites_dict[n.site] = site_id
@@ -379,20 +387,20 @@ def store_node(n,db):
             for image in n.images:
                 db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
             for link in n.links:
-                target_url = link.geturl()
-                # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
-                # we will update other rows in link's page when the page is vistited through frontier
-                to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
-                db.insert_link(page_id, to_page_id)
+                if link is not None: #ugly af but it is what it is
+                    target_url = link.geturl()
+                    # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
+                    # we will update other rows in link's page when the page is vistited through frontier
+                    to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
+                    db.insert_link(page_id, to_page_id)
         else:
             n.page_type_code = "DUPLICATE"
             db.set_duplicate_page(html_dict[page_html_hash])
+            page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
+
     else:
         page_id = db.insert_page(sites_dict[n.site], n.page_type_code, n.targetUrl, None, n.status_code,n.access_time)
         page_data_id = db.insert_page_data(page_id,n.ending,n.pageData)
-
-
-    print('storing node..')
 
 
 def get_initial_nodes():
@@ -421,7 +429,7 @@ def parse_sitemap(url):
                          'changefreq':sitemap.findNext("changefreq").text,
                          'priority':sitemap.findNext("priority").text})
         xml = r.text
-    return {'sitemap':xmlArray,'sitemap_text':xml}
+    return {'sitemap_parser':xmlArray,'sitemap_text':xml}
 
 
 def extract_sitemap_url(robots_txt):
