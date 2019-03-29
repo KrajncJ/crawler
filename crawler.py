@@ -7,8 +7,6 @@ import urllib3
 import hashlib
 import requests
 
-from usp.tree import sitemap_tree_for_homepage
-import re
 
 from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
@@ -19,6 +17,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from urllib.parse import urlparse
 from urllib import robotparser
+from bs4 import BeautifulSoup
 
 import time
 from multiprocessing import  Manager, Process
@@ -28,7 +27,7 @@ from multiprocessing import  Manager, Process
 # CONSTANTS
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
-WORKERS = 5
+WORKERS = 1
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
 VALID_DOCS = ['pdf', 'doc', 'ppt', 'docx', 'pptx']
 PAGE_TYPES = ["HTML", "BINARY", "DUPLICATE", "FRONTIER"]
@@ -83,28 +82,27 @@ class Node:
         self.links = []
         self.images = []
 
-    # Returns true if given node is site.
-    def can_fetch(self):
-        #@todo fix self.targetUrl is empty sometimes
-        if self.parsedUrl.netloc not in site_info:
-            print(str(self.parsedUrl.netloc) +  "not in site_info")
-            # Fetch robots
-            print('robot parser.. ')
-            parserLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
-            rp = robotparser.RobotFileParser()
-            site_info[self.parsedUrl.netloc] = rp
-            try:
-                rp.set_url(parserLink)
-                print('parser linek set: ' + parserLink)
-                rp.read()
-                print('entries: ')
-                print(str(rp.default_entry))
+        self.init_fetch()
 
+    # Returns true if given node is site.
+    def init_fetch(self):
+        if self.parsedUrl.netloc not in site_info:
+            print(str(self.parsedUrl.netloc) +  " not in site_info")
+            site_info[self.parsedUrl.netloc] = False
+            # robotsLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
+            basicUrl = "{0}://{1}".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
+
+            try:
+                rs = parse_robots_and_sitemap(basicUrl)
+                site_info[self.parsedUrl.netloc] = rs
+                rp = rs['robots']['robots_parser']
                 url_to_check = self.targetUrl
-                cf = rp.can_fetch("*", url_to_check)
-                print('can fetch:  ' + url_to_check)
-                print(cf)
-               # site_info[self.parsedUrl.netloc] = cf
+                cf = rp.can_fetch('*',url_to_check)
+                print('can fetch:  ' + url_to_check + " ? " + str(cf))
+                self.tries = 6 if not cf else self.tries
+
+                self.robots_content = str(rs['robots']['robots_text'])
+                self.sitemap_content= str(rs['sitemap']['sitemap_text'])
 
             except Exception as e:
                 # Something go wrong.
@@ -112,10 +110,17 @@ class Node:
                 print(e)
                 return False
         else:
-            print('got existing parser..')
-            # Do not fetch if instance already exists
-            parser = site_info[self.parsedUrl.netloc]
-            return parser.can_fetch(self.targetUrl)
+            if site_info[self.parsedUrl.netloc] == False:
+                print("site already in site_info but has no robots")
+                return False
+            else:
+                print('already got robots and sitemap for this site')
+                print(self.parsedUrl.netloc)
+                rp = site_info[self.parsedUrl.netloc]['robots']['robots_parser']
+                cf = rp.can_fetch('*',self.targetUrl)
+                print('can fetch:  ' + self.targetUrl + " ? " + str(cf))
+                self.tries = 6 if not cf else self.tries
+                return cf
 
     # Mark node fetch was not successful
     def mark_failed(self):
@@ -151,7 +156,6 @@ class Worker(Process):
         self.db = None
 
     def run(self):
-
         while True:
             #print('process running: '+ self.name)
             # Get node to work on it.
@@ -171,12 +175,13 @@ class Worker(Process):
             print("{} got node: {}".format(self.name, work_node.targetUrl))
 
 
+            if work_node.is_valid() and not work_node.fetched:
+                fetch_node(work_node)
 
-            # Do work
-            fetch_node(work_node)
 
             # Check status and place it to correct queue
-            if work_node.fetched:
+            if work_node.is_valid() and work_node.fetched:
+                prev_node_tries = 0
                 self.done_q.put(work_node)
                 # Put all links into frontier
                 for u in work_node.links:
@@ -186,7 +191,7 @@ class Worker(Process):
                    # Get site details, and check if site can be accessed.
                    # @TODO here we also need to get all additional urls from sitemap and add them into frontier
                    # @TODO site i should return url list
-                   site_i = get_site_info(work_node.site, self.db)
+                   # site_i = get_site_info(work_node.site, self.db)
 
                    # @TODO check if site can be added to frontier
                    # @TODO remove site from node links
@@ -194,76 +199,13 @@ class Worker(Process):
                    self.frontier_q.put(Node(u))
                 store_node(work_node,self.db)
 
-            elif work_node.is_valid:
-                # add some timeout @TODO we should add some lower priority to wait a few seconds before next fetch
+
+            #Puts the node back to frontier
+            if work_node.is_valid() and not work_node.fetched:
                 self.frontier_q.put(work_node)
+
             self.frontier_q.task_done()
 
-
-def get_next_urls(driver):
-
-    # @TODO currently only A hrefs are included - we may add some additional??
-    url_parsed_links = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//a[@href]")]
-
-    # Remove links which are not from .gov.si
-    url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
-
-    to_investigate_urls = []
-
-    # Use only urls which were not handled till now
-    for url in url_parsed_links:
-        #Get original url
-        target_url = url.geturl()
-        if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
-            to_investigate_urls.append(url)
-            handled_urls[target_url] = True
-
-    # docs_urls = []
-    # Just for testing..
-    # for url in to_investigate_urls:
-    #     for ending in VALID_DOCS:
-    #         if url.endswith(ending):
-    #             docs_urls.append(url)
-    # print('docs urls:')
-    # print(docs_urls)
-    return to_investigate_urls
-
-
-def save_image_locally(url):
-    http = urllib3.PoolManager()
-    image_name = url.split("/")[-1]
-    r = http.request('GET', url, preload_content=False)
-    with open("images/"+image_name, 'wb') as out:
-        while True:
-            data = r.read()
-            if not data:
-                break
-            out.write(data)
-
-
-def url_file_to_bytes(url):
-    http = urllib3.PoolManager()
-    r = http.request('GET', url, preload_content=False)
-    data = r.read()
-    ba = bytearray(data)
-    by = bytes(ba)
-    return by
-
-
-def extract_images(driver):
-    elems = driver.find_elements_by_xpath("//img[@src]")
-    images = []
-    for i in elems:
-        url = i.get_attribute("src")
-        image_name = url.split("/")[-1]
-        image_type = image_name.split(".")[-1]
-        image_bytes = url_file_to_bytes(url)
-        images.append({'name':image_name,
-                       'data':image_bytes,
-                       'type':image_type,
-                       'time_stamp': datetime.datetime.now()
-                       })
-    return images
 
 
 # Fetches one node and populate attributes to it
@@ -354,45 +296,78 @@ def fetch_url(url, headless = True):
             'message': 'Timeout'
         }
 
-def get_site_info(site_url, db):
-    if site_url in site_info:
-        print('site info exists')
-        return site_info[site_url]
-    else:
-        print('site info not exists')
-        get_and_store_site(site_url,db)
+
+def get_next_urls(driver):
+
+    # @TODO currently only A hrefs are included - we may add some additional??
+    url_parsed_links = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//a[@href]")]
+
+    # Remove links which are not from .gov.si
+    url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
+
+    to_investigate_urls = []
+
+    # Use only urls which were not handled till now
+    for url in url_parsed_links:
+        #Get original url
+        target_url = url.geturl()
+        if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
+            to_investigate_urls.append(url)
+            handled_urls[target_url] = True
+
+    # docs_urls = []
+    # Just for testing..
+    # for url in to_investigate_urls:
+    #     for ending in VALID_DOCS:
+    #         if url.endswith(ending):
+    #             docs_urls.append(url)
+    # print('docs urls:')
+    # print(docs_urls)
+    return to_investigate_urls
 
 
-def get_and_store_site(site_url, db):
-    parserLink = "http://{0}/robots.txt".format(site_url)
-    rp = robotparser.RobotFileParser()
-    rp.set_url("https://slo-tech.com/robots.txt")
-    rp.read()
-    print('rp initialized')
-    print(rp.entries)
-    r = requests.get(parserLink)
-    print('res')
-    print(r)
-    print(r.text)
-    # print('serch')
-    # print(re.search(r'Sitemap: (.*?)\n', r.text).group(1))
-    # print('end srch')
-    # # site_info[site_url] = rp
+def save_image_locally(url):
+    http = urllib3.PoolManager()
+    image_name = url.split("/")[-1]
+    r = http.request('GET', url, preload_content=False)
+    with open("images/"+image_name, 'wb') as out:
+        while True:
+            data = r.read()
+            if not data:
+                break
+            out.write(data)
 
-    if site_url not in sites_dict:
-        # Fetch stuff.
-        try:
-            site_id = db.insert_site(site_url, r.text, '')
-            sites_dict[n.site] = site_id
-            return site_url
-        except:
-            return False
-    else:
-        # get site from db or dict.
-        print('test')
+
+def url_file_to_bytes(url):
+    http = urllib3.PoolManager()
+    r = http.request('GET', url, preload_content=False)
+    data = r.read()
+    ba = bytearray(data)
+    by = bytes(ba)
+    return by
+
+
+def extract_images(driver):
+    elems = driver.find_elements_by_xpath("//img[@src]")
+    images = []
+    for i in elems:
+        url = i.get_attribute("src")
+        image_name = url.split("/")[-1]
+        image_type = image_name.split(".")[-1]
+        image_bytes = url_file_to_bytes(url)
+        images.append({'name':image_name,
+                       'data':image_bytes,
+                       'type':image_type,
+                       'time_stamp': datetime.datetime.now()
+                       })
+    return images
 
 
 def store_node(n,db):
+
+    if n.site not in sites_dict:
+        site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
+        sites_dict[n.site] = site_id
 
     if n.page_type_code == PAGE_TYPES[0]:
         page_html = n.pageData.encode('utf-8')
@@ -430,6 +405,64 @@ def at_least_one_worker_active(workers):
             # Do not terminate yet
             return True
     return False
+
+
+def parse_sitemap(url):
+    xmlArray = []
+    r = requests.get(url,timeout=3)
+    xml = ""
+    soup = BeautifulSoup(r.text)
+    sitemapTags = soup.find_all("sitemap")
+    if len(sitemapTags) == 0:
+        sitemapTags = soup.find_all("url")
+    for sitemap in sitemapTags:
+        xmlArray.append({'url':sitemap.findNext("loc").text,
+                         'lastmod':sitemap.findNext("lastmod").text,
+                         'changefreq':sitemap.findNext("changefreq").text,
+                         'priority':sitemap.findNext("priority").text})
+        xml = r.text
+    return {'sitemap':xmlArray,'sitemap_text':xml}
+
+
+def extract_sitemap_url(robots_txt):
+    robots_array = robots_txt.split('\n')
+    sitemap_url = None
+    for line in robots_array:
+        if line.lower().startswith("sitemap"):
+            line_array = line.split(":",1)
+            if len(line_array) > 0:
+                line_array[1] = line_array[1].replace(" ", "")
+                sitemap_url = line_array[1]
+    return sitemap_url
+
+
+def parse_robots_and_sitemap(url_in):
+    url = url_in + "/robots.txt"
+    return_dict = {}
+    r = requests.get(url,timeout=3)
+    robots_all_text = r.text
+    rp = robotparser.RobotFileParser()
+    rp.parse(robots_all_text.split("\r"))
+    if rp.default_entry == None:
+        robots_all_text = ""
+
+    sitemap_url = extract_sitemap_url(robots_all_text)
+    if sitemap_url is not None:
+        sitemap = parse_sitemap(sitemap_url)
+    else:
+        sitemap = parse_sitemap(url + "/sitemap.xml")
+
+    return_dict["sitemap"] = sitemap
+    return_dict["robots"]  = {"robots_parser":rp,
+                              "robots_text"  :robots_all_text}
+    return return_dict
+
+
+
+
+if __name__ == '__main1__':
+    rs = parse_robots_and_sitemap("http://www.e-prostor.gov.si")
+    print(rs)
 
 
 if __name__ == '__main__':

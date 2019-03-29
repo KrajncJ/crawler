@@ -93,12 +93,18 @@ class New_dbHelper:
         query_result = self.cursor.fetchall()
 
         i_filename = filename
-        if len(filename) > 50:
-            i_filename = filename[-48:]
+        if len(filename) > 255:
+            i_filename = filename[-249:]
+        i_content_type = content_type
+        if len(content_type) > 50:
+            i_content_type = content_type[:49]
+            return None
+
+
 
         if len(query_result) <= 0:
             insert_query = 'insert into "crawldb"."image"("page_id","filename","content_type","data","accessed_time") values (?, ?, ?, ?, ?) RETURNING id;'
-            last_row = self.cursor.execute(insert_query, [str(page_id),i_filename,content_type,pypyodbc.Binary(data),str(accessed_time)])
+            last_row = self.cursor.execute(insert_query, [str(page_id),i_filename,i_content_type,pypyodbc.Binary(data),str(accessed_time)])
             self.cursor.commit()
             for r in last_row:
                 return_id = r[0]
