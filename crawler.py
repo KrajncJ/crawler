@@ -28,6 +28,7 @@ from multiprocessing import  Manager, Process
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
 WORKERS = 4
+DEFAULT_REQ_RATE = 4
 INITIAL_URLS = ['http://www.e-prostor.gov.si']
 VALID_DOCS = ['pdf', 'doc', 'ppt', 'docx', 'pptx']
 PAGE_TYPES = ["HTML", "BINARY", "DUPLICATE", "FRONTIER"]
@@ -47,6 +48,8 @@ site_info = {}
 sites_dict = {}
 html_dict = {}
 
+sites_last_visited = {}
+
 
 class Node:
     max_tries = 5
@@ -63,7 +66,7 @@ class Node:
 
 
         if (page_type.lower() in VALID_DOCS):
-            print("PAGE IN VALID DOCS type({})".format(str(page_type)))
+            print("PAGE IN VALID DOCS type({})".format(str(page_type))+ ' url: '+self.targetUrl)
             self.page_type_code = PAGE_TYPES[1]
             self.ending = page_type
 
@@ -75,6 +78,7 @@ class Node:
         self.sitemap_content = ""
         self.sitemap_list = []
         self.access_time = ""
+        self.request_rate = 3 #@TODO
 
         # Holds fetched data
         self.pageData = None
@@ -97,12 +101,14 @@ class Node:
                 rp = rs['robots']['robots_parser']
                 url_to_check = self.targetUrl
                 cf = rp.can_fetch('*',url_to_check)
-                print('can fetch:  ' + url_to_check + " ? " + str(cf))
+                print('init fetch: can fetch (try):  ' + url_to_check + " ? " + str(cf))
                 self.tries = 6 if not cf else self.tries
 
                 self.robots_content = str(rs['robots']['robots_text'])
                 self.sitemap_content= str(rs['sitemap']['sitemap_text'])
                 self.sitemap_list   = rs['sitemap']['sitemap_parser']
+                self.request_rate = rp.crawl_delay("*")
+
 
 
             except Exception as e:
@@ -112,13 +118,15 @@ class Node:
                 return False
         else:
             if site_info[self.parsedUrl.netloc] == False:
+
                 print("site {} already in site_info but has no robots".format(self.parsedUrl.netloc))
+                print(site_info)
                 return False
             else:
                 print('already got robots and sitemap for this site ({})'.format(self.parsedUrl.netloc))
                 rp = site_info[self.parsedUrl.netloc]['robots']['robots_parser']
                 cf = rp.can_fetch('*',self.targetUrl)
-                print('can fetch:  ' + self.targetUrl + " ? " + str(cf))
+                print('init fetch: can fetch:  ' + self.targetUrl + " ? " + str(cf))
                 self.tries = 6 if not cf else self.tries
                 return cf
 
@@ -157,64 +165,67 @@ class Worker(Process):
 
     def run(self):
         while True:
-            #print('process running: '+ self.name)
-            # Get node to work on it.
-            try:
-                if self.db is None:
-                    self.db = dbHelper.New_dbHelper()
-                work_node = self.frontier_q.get(timeout=10)
 
+            if self.db is None:
+                self.db = dbHelper.New_dbHelper()
+            self.process_node()
 
+    def process_node(self):
+        # Get node to work on it.
+        try:
 
-            except Exception as e:
-                # TODO terminate process
-                print("Worker ({0}) has no more data in frontier.\n".format(self.name))
-                super(Worker, self).terminate()
-                continue
+            work_node = self.frontier_q.get(timeout=10)
+            time_between_requests = work_node.request_rate if work_node.request_rate is not None else DEFAULT_REQ_RATE
 
-            print("{} got node: {}".format(self.name, work_node.targetUrl))
+            if work_node.parsedUrl.netloc in sites_last_visited:
+                time_elapsed = time.time() - sites_last_visited[work_node.parsedUrl.netloc]
 
+                if time_elapsed < time_between_requests:
+                    print('should wait some time putting node back to queue , elapsed: ' + str(
+                        time_elapsed) + ", " + work_node.targetUrl)
+                    self.frontier_q.put(work_node)
+                    return;
 
-            if work_node.is_valid() and not work_node.fetched:
-                fetch_node(work_node)
+            else:
+                print('site not visited at all: ' + work_node.parsedUrl.netloc)
 
+        except Exception as e:
+            # TODO terminate process
+            print("Worker ({0}) has no more data in frontier.\n".format(self.name))
+            super(Worker, self).terminate()
 
-            # Check status and place it to correct queue
-            if work_node.is_valid() and work_node.fetched:
-                self.done_q.put(work_node)
-                # Put all links into frontier
-                for sm in work_node.sitemap_list:
-                    parsed_link = urlparse(sm['url'])
-                    sm_node = Node(parsed_link)
-                    self.frontier_q.put(sm_node)
+        print("{} got node: {}".format(self.name, work_node.targetUrl))
 
-                for i in range(len(work_node.links)):
-                   #print('adding to frontier')
-                   #@TODO check if all links are ok with robots.txt if not, dont add
+        if work_node.is_valid() and not work_node.fetched:
+            fetch_node(work_node)
 
-                   # Get site details, and check if site can be accessed.
-                   # @TODO here we also need to get all additional urls from sitemap and add them into frontier
-                   # @TODO site i should return url list
-                   # site_i = get_site_info(work_node.site, self.db)
+        # Check status and place it to correct queue
+        if work_node.is_valid() and work_node.fetched:
+            self.done_q.put(work_node)
+            # Put all links into frontier
 
-                   # @TODO check if site can be added to frontier
-                   # @TODO remove site from node links
-                    link = work_node.links[i]
-                    new_node = Node(link)
-                    if new_node.is_valid():
-                        self.frontier_q.put(new_node)
-                    else:
-                        work_node.links[i] = None
+            for sm in work_node.sitemap_list:
+                parsed_link = urlparse(sm['url'])
+                print('adding node from sitemap: ' + parsed_link.geturl())
+                sm_node = Node(parsed_link)
+                self.frontier_q.put(sm_node)
 
-                store_node(work_node,self.db)
+            for i in range(len(work_node.links)):
 
+                link = work_node.links[i]
+                new_node = Node(link)
+                if new_node.is_valid():
+                    self.frontier_q.put(new_node)
+                else:
+                    work_node.links[i] = None
 
-            #Puts the node back to frontier
-            if work_node.is_valid() and not work_node.fetched:
-                self.frontier_q.put(work_node)
+            store_node(work_node, self.db)
 
-            self.frontier_q.task_done()
+        # Puts the node back to frontier
+        if work_node.is_valid() and not work_node.fetched:
+            self.frontier_q.put(work_node)
 
+        self.frontier_q.task_done()
 
 
 # Fetches one node and populate attributes to it
@@ -223,6 +234,7 @@ def fetch_node(node):
     try:
         if node.page_type_code == PAGE_TYPES[0]:
             result = fetch_url(node.targetUrl)
+            sites_last_visited[node.parsedUrl.netloc] = time.time()
             if result['status'] == STATUS_OK:
                 node.status_code = result['status_code']
                 node.access_time = result['access_time']
@@ -310,7 +322,8 @@ def get_next_urls(driver):
 
     # @TODO currently only A hrefs are included - we may add some additional??
     url_parsed_links = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//a[@href]")]
-
+    url_parsed_links_btns = [urlparse(element.get_attribute("href")) for element in driver.find_elements_by_xpath("//button[@onclick]")]
+    print('buttons click: '+str(len(url_parsed_links_btns)))
     # Remove links which are not from .gov.si
     url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
 
@@ -318,20 +331,12 @@ def get_next_urls(driver):
 
     # Use only urls which were not handled till now
     for url in url_parsed_links:
-        #Get original url
+        # Get original url
         target_url = url.geturl()
         if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
             to_investigate_urls.append(url)
             handled_urls[target_url] = True
 
-    # docs_urls = []
-    # Just for testing..
-    # for url in to_investigate_urls:
-    #     for ending in VALID_DOCS:
-    #         if url.endswith(ending):
-    #             docs_urls.append(url)
-    # print('docs urls:')
-    # print(docs_urls)
     return to_investigate_urls
 
 
@@ -451,8 +456,9 @@ def parse_robots_and_sitemap(url_in):
     robots_all_text = r.text
     rp = robotparser.RobotFileParser()
     rp.parse(robots_all_text.split("\r"))
+
     if rp.default_entry == None:
-        robots_all_text = ""
+        robots_all_text = "NO_ROBOTS"
 
     sitemap_url = extract_sitemap_url(robots_all_text)
     if sitemap_url is not None:
