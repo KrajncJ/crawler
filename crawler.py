@@ -29,7 +29,15 @@ MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
 WORKERS = 4
 DEFAULT_REQ_RATE = 4
-INITIAL_URLS = ['http://www.e-prostor.gov.si']
+INITIAL_URLS = ['http://evem.gov.si',
+                'https://e-uprava.gov.si/', 
+                'https://podatki.gov.si/',
+                'http://www.e-prostor.gov.si/',
+                'http://www.mju.gov.si/',
+                'http://prostor3.gov.si',
+                'http://www.gu.gov.si/',
+                'http://www.fu.gov.si/',
+                'http://www.mop.gov.si/']
 VALID_DOCS = ['pdf', 'doc', 'ppt', 'docx', 'pptx']
 PAGE_TYPES = ["HTML", "BINARY", "DUPLICATE", "FRONTIER"]
 
