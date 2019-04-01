@@ -49,12 +49,15 @@ STATUS_UN_EXCEPTION = 2
 # SOME GLOBAL VARIABLES
 
 # This dictionary holds all urls which were added to processing or may have been explored
-handled_urls = {}
+
+
 # Dict of robotParsers
 site_info = {}
 #
 sites_dict = {}
 html_dict = {}
+
+handled_urls = {}
 
 sites_last_visited = {}
 
@@ -80,6 +83,9 @@ class Node:
 
         self.status_code = ""
 
+        # Filled after node is stored
+        self.site_id = None
+        self.page_id = None
 
         #@TODO: to discuss with partner
         self.robots_content = ""
@@ -127,14 +133,14 @@ class Node:
         else:
             if site_info[self.parsedUrl.netloc] == False:
 
-                print("site {} already in site_info but has no robots".format(self.parsedUrl.netloc))
+        #        print("site {} already in site_info but has no robots".format(self.parsedUrl.netloc))
                 print(site_info)
                 return False
             else:
-                print('already got robots and sitemap for this site ({})'.format(self.parsedUrl.netloc))
+            #    print('already got robots and sitemap for this site ({})'.format(self.parsedUrl.netloc))
                 rp = site_info[self.parsedUrl.netloc]['robots']['robots_parser']
                 cf = rp.can_fetch('*',self.targetUrl)
-                print('init fetch: can fetch:  ' + self.targetUrl + " ? " + str(cf))
+           #     print('init fetch: can fetch:  ' + self.targetUrl + " ? " + str(cf))
                 self.tries = 6 if not cf else self.tries
                 return cf
 
@@ -169,7 +175,10 @@ class Worker(Process):
         self.name = name
         self.frontier_q = frontier_q
         self.done_q = done_q
+
         self.db = None
+
+
 
     def run(self):
         while True:
@@ -205,34 +214,65 @@ class Worker(Process):
         print("{} got node: {}".format(self.name, work_node.targetUrl))
 
         if work_node.is_valid() and not work_node.fetched:
+
             fetch_node(work_node)
 
         # Check status and place it to correct queue
         if work_node.is_valid() and work_node.fetched:
-            self.done_q.put(work_node)
-            # Put all links into frontier
 
-            for sm in work_node.sitemap_list:
-                parsed_link = urlparse(sm['url'])
-                print('adding node from sitemap: ' + parsed_link.geturl())
-                sm_node = Node(parsed_link)
-                self.frontier_q.put(sm_node)
+            print('handled size: ' + str(len(handled_urls)))
 
-            for i in range(len(work_node.links)):
-
-                link = work_node.links[i]
-                print('adding link node: ' + link.geturl() )
-
-                new_node = Node(link)
-                if new_node.is_valid():
-                    self.frontier_q.put(new_node)
-                else:
-                    work_node.links[i] = None
 
             store_node(work_node, self.db)
 
+
+            # Put all links into frontier
+            for sm in work_node.sitemap_list:
+
+                parsed_link = urlparse(sm['url'])
+                print('filtering: '+ parsed_link.geturl())
+                print('is in handled: ' + str(parsed_link.geturl() in handled_urls))
+
+                filtered = filter_links([parsed_link])
+
+
+                if len(filtered) == 0:
+                    # Link was already added
+                    print('link already added to q. (sitemap add)')
+                    continue
+                else:
+                    print('all good: filt len: '+ str(len(filtered)))
+
+
+                print('adding node from sitemap: ' + parsed_link.geturl())
+
+                print(handled_urls[parsed_link.geturl()])
+                print('---')
+                to_page_id = self.db.insert_page(sites_dict[work_node.site], "FRONTIER", parsed_link.geturl(), None, None, None)
+                print('to_page_id: '+ str(to_page_id))
+
+                self.db.insert_link(work_node.page_id, to_page_id)
+                sm_node = Node(parsed_link)
+                self.frontier_q.put(sm_node)
+
+            for link in work_node.links:
+
+                new_node = Node(link)
+
+                if new_node.is_valid():
+                    self.frontier_q.put(new_node)
+
+                    to_page_id = self.db.insert_page(sites_dict[work_node.site], "FRONTIER", link.geturl(), None, None, None)
+                    print('inserting link from links: ' + str(work_node.page_id) + ' - ' + str(to_page_id))
+
+                    self.db.insert_link(work_node.page_id, to_page_id)
+                else:
+                    print('invalid link not added to queue: '+ link.geturl())
+
+
         # Puts the node back to frontier
         if work_node.is_valid() and not work_node.fetched:
+            print('putting node back into queueu')
             self.frontier_q.put(work_node)
 
         self.frontier_q.task_done()
@@ -296,9 +336,8 @@ def fetch_url(url, headless = True):
         status_code = r.status_code
         access_time = datetime.datetime.now()
 
-
-
         links = get_next_urls(driver)
+        print('url got links: '+ str(len(links))+ ' '+ url)
         images = extract_images(driver)
         return {
             'status': STATUS_OK,
@@ -336,18 +375,21 @@ def get_next_urls(driver):
     # Remove links which are not from .gov.si
     url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
 
-    print('before filter l')
+
     return filter_links(url_parsed_links)
 
 
 def filter_links(parsed_url_list):
+
     print('filter links called')
+
     to_investigate_urls = []
 
     # Use only urls which were not handled till now
     for url in parsed_url_list:
         # Get original url
         target_url = url.geturl()
+        print('target url: '+ target_url)
         if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
             to_investigate_urls.append(url)
             handled_urls[target_url] = True
@@ -355,7 +397,8 @@ def filter_links(parsed_url_list):
             return to_investigate_urls
         else:
             print('already in: '+ target_url)
-    print('filter links returning: '+ len(to_investigate_urls))
+    print('filter links returning: '+ str(len(to_investigate_urls)))
+    print('missed: '+str(len(parsed_url_list)- len(to_investigate_urls)))
     return to_investigate_urls
 
 
@@ -397,36 +440,43 @@ def extract_images(driver):
 
 
 def store_node(n,db):
+
     if n.site not in sites_dict:
         site_id = db.insert_site(n.site,n.robots_content,n.sitemap_content)
         sites_dict[n.site] = site_id
+        n.site_id = site_id
+    else:
+        n.site_id = sites_dict[n.site]
 
     if n.page_type_code == PAGE_TYPES[0]:
         page_html = n.pageData.encode('utf-8')
         page_html_hash = hashlib.md5(page_html)
-
+        print('hash is?: '+ str(page_html_hash))
         if page_html_hash not in html_dict:
+            print('hash not in: ' + str(page_html_hash))
             page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
             html_dict[page_html_hash] = page_id
+            n.page_id = page_id
             for image in n.images:
                 db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
-            for link in n.links:
-                if link is not None: #ugly af but it is what it is
-                    target_url = link.geturl()
-                    # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
-                    # we will update other rows in link's page when the page is vistited through frontier
-                    to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
-                    print('inserting link: '+ str(page_id)+ ' - '+ str(to_page_id))
-                    db.insert_link(page_id, to_page_id)
+        # for link in n.links:
+        #     if link is not None: #ugly af but it is what it is
+        #         target_url = link.geturl()
+        #         # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
+        #         # we will update other rows in link's page when the page is vistited through frontier
+        #         to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
+        #         print('inserting link: '+ str(page_id)+ ' - '+ str(to_page_id))
+        #         db.insert_link(page_id, to_page_id)
         else:
+            print('hash is IN!: ' + str(page_html_hash))
             n.page_type_code = "DUPLICATE"
             db.set_duplicate_page(html_dict[page_html_hash])
             page_id = db.insert_page(sites_dict[n.site],n.page_type_code,n.targetUrl,n.pageData,n.status_code,n.access_time)
-
+            n.page_id = page_id
     else:
         page_id = db.insert_page(sites_dict[n.site], n.page_type_code, n.targetUrl, None, n.status_code,n.access_time)
         page_data_id = db.insert_page_data(page_id,n.ending,n.pageData)
-
+        n.page_id = page_id
 
 def get_initial_nodes():
     return [Node(urlparse(url)) for url in INITIAL_URLS]
@@ -502,7 +552,9 @@ if __name__ == '__main1__':
 if __name__ == '__main__':
 
     dtbs = dbHelper.New_dbHelper()
- 
+
+    res = dtbs.get_site('podatki.g2ov.si')
+    print(res)
     print('Initializing ...')
     # Create queues
     manager = Manager()
@@ -510,13 +562,16 @@ if __name__ == '__main__':
     done_q = manager.Queue()
     site_info = manager.dict()
 
+
+
     # Create workers
     workers = []
     for i in range(WORKERS):
-        workers.append(Worker("Worker {0}".format(i), frontier_q, done_q))
+        workers.append(Worker("Worker {0}".format(i), frontier_q, done_q ))
 
     # Put initial nodes into queue
     nodes = get_initial_nodes()
+
     for n in nodes:
         frontier_q.put(n)
     print('Staring crawler with {0} nodes in frontier ...'.format(frontier_q.qsize()))
