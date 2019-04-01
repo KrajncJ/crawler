@@ -30,7 +30,7 @@ ENDING_DOMAIN = 'gov.si'
 WORKERS = 4
 DEFAULT_REQ_RATE = 4
 INITIAL_URLS = ['http://evem.gov.si',
-                'https://e-uprava.gov.si/', 
+                'https://e-uprava.gov.si/',
                 'https://podatki.gov.si/',
                 'http://www.e-prostor.gov.si/',
                 'http://www.mju.gov.si/',
@@ -189,8 +189,8 @@ class Worker(Process):
                 time_elapsed = time.time() - sites_last_visited[work_node.parsedUrl.netloc]
 
                 if time_elapsed < time_between_requests:
-                    print('should wait some time putting node back to queue , elapsed: ' + str(
-                        time_elapsed) + ", " + work_node.targetUrl)
+                   # print('should wait some time putting node back to queue , elapsed: ' + str(
+                    #    time_elapsed) + ", " + work_node.targetUrl)
                     self.frontier_q.put(work_node)
                     return;
 
@@ -221,6 +221,8 @@ class Worker(Process):
             for i in range(len(work_node.links)):
 
                 link = work_node.links[i]
+                print('adding link node: ' + link.geturl() )
+
                 new_node = Node(link)
                 if new_node.is_valid():
                     self.frontier_q.put(new_node)
@@ -298,7 +300,6 @@ def fetch_url(url, headless = True):
 
         links = get_next_urls(driver)
         images = extract_images(driver)
-
         return {
             'status': STATUS_OK,
             'links': links,
@@ -335,16 +336,26 @@ def get_next_urls(driver):
     # Remove links which are not from .gov.si
     url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
 
+    print('before filter l')
+    return filter_links(url_parsed_links)
+
+
+def filter_links(parsed_url_list):
+    print('filter links called')
     to_investigate_urls = []
 
     # Use only urls which were not handled till now
-    for url in url_parsed_links:
+    for url in parsed_url_list:
         # Get original url
         target_url = url.geturl()
         if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
             to_investigate_urls.append(url)
             handled_urls[target_url] = True
-
+            print('not yet in: ' + target_url)
+            return to_investigate_urls
+        else:
+            print('already in: '+ target_url)
+    print('filter links returning: '+ len(to_investigate_urls))
     return to_investigate_urls
 
 
@@ -405,6 +416,7 @@ def store_node(n,db):
                     # we insert link's page to page table, but we dont set any other rows. We do that to get link's page id
                     # we will update other rows in link's page when the page is vistited through frontier
                     to_page_id = db.insert_page(sites_dict[n.site], "FRONTIER", target_url, None, None, None)
+                    print('inserting link: '+ str(page_id)+ ' - '+ str(to_page_id))
                     db.insert_link(page_id, to_page_id)
         else:
             n.page_type_code = "DUPLICATE"
@@ -465,8 +477,8 @@ def parse_robots_and_sitemap(url_in):
     rp = robotparser.RobotFileParser()
     rp.parse(robots_all_text.split("\r"))
 
-    if rp.default_entry == None:
-        robots_all_text = "NO_ROBOTS"
+    # if rp.default_entry == None:
+    #     robots_all_text = "NO_ROBOTS"
 
     sitemap_url = extract_sitemap_url(robots_all_text)
     if sitemap_url is not None:
@@ -488,6 +500,8 @@ if __name__ == '__main1__':
 
 
 if __name__ == '__main__':
+
+    dtbs = dbHelper.New_dbHelper()
  
     print('Initializing ...')
     # Create queues
@@ -515,6 +529,8 @@ if __name__ == '__main__':
 
     while at_least_one_worker_active(workers) or frontier_q.qsize() > 0:
         print('**** Qsize: {0} ****'.format(str(frontier_q.qsize())))
+        print('**** Done Qsize: {0} ****'.format(str(done_q.qsize())))
+        dtbs.get_frontier_size()
         time.sleep(3)
 
     # Wait for last pages to fetch, which are currently in worker.
