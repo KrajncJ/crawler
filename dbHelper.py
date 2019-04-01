@@ -48,9 +48,9 @@ class New_dbHelper:
             return_id = query_result[0][0]
         return return_id
 
-    def set_duplicate_page(self,page_id):
-        update_query = 'UPDATE "crawldb"."page" SET page_type_code=? WHERE id = ?'
-        self.cursor.execute(update_query, ["DUPLICATE",str(page_id)])
+    def set_duplicate_page(self,page_id,hex_digest):
+        update_query = 'UPDATE "crawldb"."page" SET page_type_code=?, hex_digest=? WHERE id = ?'
+        self.cursor.execute(update_query, ["DUPLICATE", hex_digest, str(page_id)])
         self.cursor.commit()
 
     def insert_page(self,site_id,page_type_code,url,html_content,http_status_code,accessed_time, hex_digest):

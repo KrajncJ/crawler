@@ -405,7 +405,7 @@ def store_node(n,db):
         else:
             n.page_type_code = "DUPLICATE"
             if n.page_id is not None:
-                db.set_duplicate_page(n.page_id)
+                db.set_duplicate_page(n.page_id,hex_digest)
                 #   page_id = db.insert_page(n.site_id,n.page_type_code,n.targetUrl,n
                 #   .pageData,n.status_code,n.access_time, hex_digest)
             n.duplicate = True
