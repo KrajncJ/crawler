@@ -205,3 +205,9 @@ class New_dbHelper:
         query_result = self.cursor.fetchall()
         result = len(query_result) > 0
         return result
+
+    def mark_failed(self, page_id):
+        update_query = 'UPDATE "crawldb"."page" SET accessed = accessed +1 WHERE id = ?'
+        # print([str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
+        self.cursor.execute(update_query,[str(page_id)])
+        self.cursor.commit()

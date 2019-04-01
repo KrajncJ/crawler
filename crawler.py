@@ -191,6 +191,11 @@ class Worker(Process):
         if work_node.is_valid():
             fetch_node(work_node)
 
+        if not work_node.fetched:
+            if work_node.page_id:
+                print('marking node as fetch failed')
+                self.db.mark_failed(work_node.page_id)
+                return
         # Check status and place it to correct queue
         if work_node.is_valid() and work_node.fetched:
 
@@ -405,7 +410,7 @@ def store_node(n,db):
                 #   .pageData,n.status_code,n.access_time, hex_digest)
             n.duplicate = True
     else:
-        page_id = db.insert_page(n.site_id, n.page_type_code, n.targetUrl, None, n.status_code,n.access_time)
+        page_id = db.insert_page(n.site_id, n.page_type_code, n.targetUrl, None, n.status_code,n.access_time, None)
         page_data_id = db.insert_page_data(page_id,n.ending,n.pageData)
         n.page_id = page_id
 
@@ -516,7 +521,7 @@ if __name__ == '__main__':
     while (at_least_one_worker_active(workers) and len(dtbs.get_pages_to_fetch(5)) > 0) or min_loops > 0:
 
         if frontier_q.empty():
-            to_fetch = dtbs.get_pages_to_fetch(10)
+            to_fetch = dtbs.get_pages_to_fetch(60)
             for page in to_fetch:
                 print('adding new node')
                 frontier_q.put(Node(urlparse(page[2]), page[0]))
