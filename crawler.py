@@ -344,7 +344,6 @@ def filter_links(parsed_url_list):
         print('p_type: '+ p_type)
         if p_type not in ['.mp3', '.zip']:
             to_investigate_urls.append(url)
-            return to_investigate_urls
 
     return to_investigate_urls
 
