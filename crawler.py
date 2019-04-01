@@ -48,16 +48,8 @@ STATUS_TIMEOUT = 1
 STATUS_UN_EXCEPTION = 2
 # SOME GLOBAL VARIABLES
 
-# This dictionary holds all urls which were added to processing or may have been explored
 
-
-# Dict of robotParsers
-site_info = {}
-#
-sites_dict = {}
-
-# handled_urls = {}
-
+# Holds info when the site was last visited.
 sites_last_visited = {}
 
 
@@ -67,14 +59,15 @@ class Node:
     def __init__(self, parsed_url, page_id=None):
         self.targetUrl = parsed_url.geturl()
         self.parsedUrl = parsed_url
-        self.tries = 0
         self.fetched = False
         self.page_type_code = PAGE_TYPES[0]
         self.page_id = page_id # Will be set when page will be stored or may be passed in if not initial
         self.site_id = None # Will be set while processing
-
         self.duplicate = False
 
+        self.tries = 0 # OBSOLETE
+        # Holds fetched data
+        self.pageData = None
 
         page_type = parsed_url.path.split('.')[-1]
 
@@ -84,64 +77,12 @@ class Node:
             self.ending = page_type
 
         self.status_code = ""
-
-
-        #@TODO: to discuss with partner
-        self.robots_content = ""
-        self.sitemap_content = ""
-        self.sitemap_list = []
         self.access_time = ""
+
         self.request_rate = 3 #@TODO
 
-        # Holds fetched data
-        self.pageData = None
         self.links = []
         self.images = []
-
-        self.init_fetch()
-
-    # Returns true if given node is site.
-    def init_fetch(self):
-        if self.parsedUrl.netloc not in site_info:
-            print(str(self.parsedUrl.netloc) +  " not in site_info")
-            site_info[self.parsedUrl.netloc] = False
-            # robotsLink = "{0}://{1}/robots.txt".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
-            basicUrl = "{0}://{1}".format(self.parsedUrl.scheme,self.parsedUrl.netloc)
-
-            try:
-                rs = parse_robots_and_sitemap(basicUrl)
-                site_info[self.parsedUrl.netloc] = rs
-                rp = rs['robots']['robots_parser']
-                url_to_check = self.targetUrl
-                cf = rp.can_fetch('*',url_to_check)
-                print('init fetch: can fetch (try):  ' + url_to_check + " ? " + str(cf))
-                self.tries = 6 if not cf else self.tries
-
-                self.robots_content = str(rs['robots']['robots_text'])
-                self.sitemap_content= str(rs['sitemap']['sitemap_text'])
-                self.sitemap_list   = rs['sitemap']['sitemap_parser']
-                self.request_rate = rp.crawl_delay("*")
-
-
-
-            except Exception as e:
-                # Something go wrong.
-                print('Robots content fetch error... ')
-                print(e)
-                return False
-        else:
-            if site_info[self.parsedUrl.netloc] == False:
-
-        #        print("site {} already in site_info but has no robots".format(self.parsedUrl.netloc))
-                print(site_info)
-                return False
-            else:
-            #    print('already got robots and sitemap for this site ({})'.format(self.parsedUrl.netloc))
-                rp = site_info[self.parsedUrl.netloc]['robots']['robots_parser']
-                cf = rp.can_fetch('*',self.targetUrl)
-           #     print('init fetch: can fetch:  ' + self.targetUrl + " ? " + str(cf))
-                self.tries = 6 if not cf else self.tries
-                return cf
 
     # Mark node fetch was not successful
     def mark_failed(self):
@@ -187,9 +128,6 @@ class Worker(Process):
 
             work_node = self.frontier_q.get(timeout=10)
 
-            # Check if time between request is too low
-            time_between_requests = work_node.request_rate if work_node.request_rate is not None else DEFAULT_REQ_RATE
-
             # Get site info
             site = self.db.get_site(work_node.parsedUrl.netloc)
 
@@ -203,31 +141,19 @@ class Worker(Process):
 
                     self.db.insert_site(work_node.parsedUrl.netloc, str(rs['robots']['robots_text']), str(rs['sitemap']['sitemap_text']))
 
-                    # Put all sitemap content into array
+                    # Put all sitemap content into array, only first time when inserting site
                     sitemap_urls = rs['sitemap']['sitemap_parser']
 
-
                 except Exception as e:
-                    # Mark failed. @TODO
+                    # Mark failed. @TODO mark in db
                     print('sitemap failed')
                     print(e)
-                    return
-
-            # Check site last visit time. @TODO check in db.
-            if work_node.parsedUrl.netloc in sites_last_visited:
-                time_elapsed = time.time() - sites_last_visited[work_node.parsedUrl.netloc]
-
-                if time_elapsed < time_between_requests:
-                    print('Should wait some time..')
-                    self.frontier_q.put(work_node)
                     return
 
             # Site should now be in database.
             site = self.db.get_site(work_node.parsedUrl.netloc)
             work_node.site_id = site[0]
 
-            print(self.name+ ': got site from db: '+ work_node.targetUrl + ' siteId: ' + str(site[0]))
-            print(site);
 
             # Check if node can be fetched
             try:
@@ -235,15 +161,25 @@ class Worker(Process):
                 rp.parse(site[2].split("\r"))
                 can = rp.can_fetch('*', work_node.targetUrl)
                 # Do not allow fetching.
+
+                # Check if time between request is too low
+                time_between_requests = rp.crawl_delay("*") if rp.crawl_delay("*") is not None else DEFAULT_REQ_RATE
+
+                # Check site last visit time. @TODO check in db.
+                if work_node.parsedUrl.netloc in sites_last_visited:
+                    time_elapsed = time.time() - sites_last_visited[work_node.parsedUrl.netloc]
+
+                    if time_elapsed < time_between_requests:
+                        print('Should wait some time..')
+                        self.frontier_q.put(work_node)
+                        return
+
                 if not can:
                     return
             except Exception as e:
                 print('Exception robotparser can fetchs')
                 print(e)
                 pass
-
-
-
 
         except Exception as e:
             # TODO terminate process - worker will stop here.

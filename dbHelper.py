@@ -194,7 +194,6 @@ class New_dbHelper:
         self.cursor.execute(select_query)
         query_result = self.cursor.fetchall()
         result = len(query_result) > 0
-        print('Existing with url: '+ url + ' -> '+ str(len(query_result))+' '+ str(result))
         return result
 
     def exist_digest(self, digest):
