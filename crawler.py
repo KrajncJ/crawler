@@ -328,30 +328,25 @@ def get_next_urls(driver):
     url_parsed_links = [link for link in url_parsed_links if link.netloc.endswith(ENDING_DOMAIN)]
 
 
-    return url_parsed_links
+    return filter_links(url_parsed_links)
 
 
-# def filter_links(parsed_url_list):
-#
-#     print('filter links called')
-#
-#     to_investigate_urls = []
-#
-#     # Use only urls which were not handled till now
-#     for url in parsed_url_list:
-#         # Get original url
-#         target_url = url.geturl()
-#         print('target url: '+ target_url)
-#         if target_url not in handled_urls and len(target_url) < MAX_URL_LEN:
-#             to_investigate_urls.append(url)
-#             handled_urls[target_url] = True
-#             print('not yet in: ' + target_url)
-#             return to_investigate_urls
-#         else:
-#             print('already in: '+ target_url)
-#     print('filter links returning: '+ str(len(to_investigate_urls)))
-#     print('missed: '+str(len(parsed_url_list)- len(to_investigate_urls)))
-#     return to_investigate_urls
+def filter_links(parsed_url_list):
+
+    print('filter links called')
+
+    to_investigate_urls = []
+
+    # Use only urls which were not handled till now
+    for url in parsed_url_list:
+        # Get original url
+        p_type = url.path.split('.')[-1]
+        print('p_type: '+ p_type)
+        if p_type not in ['.mp3', '.zip']:
+            to_investigate_urls.append(url)
+            return to_investigate_urls
+
+    return to_investigate_urls
 
 
 def save_image_locally(url):
