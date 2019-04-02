@@ -16,6 +16,7 @@ CREATE TABLE crawldb.site (
 	robots_content       text  ,
 	sitemap_content      text  ,
 	accessed_time        timestamp  ,
+	accessed             integer,
 	hex_digest           varchar(100),
 	CONSTRAINT pk_site_id PRIMARY KEY ( id )
  );
