@@ -477,12 +477,12 @@ def parse_robots_and_sitemap(url_in):
 
 
 
-if __name__ == '__main1__':
-    rs = parse_robots_and_sitemap("http://www.e-prostor.gov.si")
-    print(rs)
-
-
 if __name__ == '__main__':
+    #rs = parse_robots_and_sitemap("http://www.e-prostor.gov.si")
+    #print(rs)
+    import visualization
+
+if __name__ == '__main1__':
 
     dtbs = dbHelper.New_dbHelper()
 
