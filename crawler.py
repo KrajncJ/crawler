@@ -27,7 +27,7 @@ from multiprocessing import  Manager, Process
 # CONSTANTS
 MAX_URL_LEN = 255
 ENDING_DOMAIN = 'gov.si'
-WORKERS = 4
+WORKERS = 8
 DEFAULT_REQ_RATE = 4
 INITIAL_URLS = ['http://evem.gov.si',
                 'https://e-uprava.gov.si/',
@@ -341,8 +341,8 @@ def filter_links(parsed_url_list):
     for url in parsed_url_list:
         # Get original url
         p_type = url.path.split('.')[-1]
-
-        if p_type not in ['.mp3', '.zip']:
+        print('p_type: '+ p_type)
+        if p_type not in ['mp3', 'zip', 'mp4', 'webm', 'm4a']:
             to_investigate_urls.append(url)
 
     return to_investigate_urls
@@ -398,6 +398,8 @@ def store_node(n,db):
                 db.insert_image(page_id, image['name'], image['type'], image['data'], image['time_stamp'])
         else:
             n.page_type_code = "DUPLICATE"
+            print('duplicate detected:')
+            print(n.page_id)
             if n.page_id is not None:
                 db.set_duplicate_page(n.page_id,hex_digest)
                 #   page_id = db.insert_page(n.site_id,n.page_type_code,n.targetUrl,n
