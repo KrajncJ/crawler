@@ -1,14 +1,20 @@
-import plotly.plotly as py
-import plotly.graph_objs as go
-import plotly
+import matplotlib.pyplot as plt
+import networkx as nx
+import dbHelper
 
-plotly.tools.set_credentials_file(username='kuracpalac123', api_key='IOGUoMy2waRhdxQ1xWAg')
+plt.rcParams["figure.figsize"] = (15,10)
+
+db = dbHelper.New_dbHelper()
+nodes = db.get_links()
 
 
-trace1 = go.Scatter(x=[1,2,3],y=[1,2,3])
-trace2 = go.Scatter(x=[1,2,3],y=[1,2,3])
+G = nx.Graph()
+G.add_edges_from(nodes)
+
+nx.draw_spring(G,node_size=[1 for i in range(len(G.nodes))], width = 0.5)
 
 
-plot_url = py.plot([trace1,trace2])
+
+plt.show()
 
 
