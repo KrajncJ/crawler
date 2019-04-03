@@ -134,14 +134,11 @@ class Worker(Process):
             sitemap_urls = []
 
             if site is None:
-                print('no site for: '+work_node.parsedUrl.netloc)
                 # Fetch site info.
                 site_loc = "{0}://{1}".format(work_node.parsedUrl.scheme, work_node.parsedUrl.netloc)
                 try:
-                    print('fetching site: '+ site_loc)
                     rs = parse_robots_and_sitemap(site_loc)
 
-                    print('after fetch robots and sitemap')
                     self.db.insert_site(work_node.parsedUrl.netloc, str(rs['robots']['robots_text']), str(rs['sitemap']['sitemap_text']))
 
                     # Put all sitemap content into array, only first time when inserting site
@@ -345,7 +342,7 @@ def filter_links(parsed_url_list):
         # Get original url
         p_type = url.path.split('.')[-1]
         print('p_type: '+ p_type)
-        if p_type not in ['mp3', 'zip', 'mp4', 'webm', 'm4a'] and len(url.geturl()) < MAX_URL_LEN:
+        if p_type not in ['mp3', 'zip', 'mp4', 'webm', 'm4a']:
             to_investigate_urls.append(url)
 
     return to_investigate_urls
@@ -458,23 +455,7 @@ def extract_sitemap_url(robots_txt):
 def parse_robots_and_sitemap(url_in):
     url = url_in + "/robots.txt"
     return_dict = {}
-    print('before request parse robots: '+ url)
-    try:
-        r = requests.get(url,timeout=3)
-    except Exception as e:
-        # No info
-        print('no info returning default v')
-        return {
-            "sitemap": {
-                "sitemap_parser": [],
-                "sitemap_text": ''
-            },
-            "robots": {
-                "robots_text": ""
-            }
-        }
-
-    print('after request parse robots')
+    r = requests.get(url,timeout=3)
     robots_all_text = r.text
     rp = robotparser.RobotFileParser()
     rp.parse(robots_all_text.split("\r"))
@@ -496,12 +477,12 @@ def parse_robots_and_sitemap(url_in):
 
 
 
-if __name__ == '__main1__':
-    rs = parse_robots_and_sitemap("http://www.e-prostor.gov.si")
-    print(rs)
-
-
 if __name__ == '__main__':
+    #rs = parse_robots_and_sitemap("http://www.e-prostor.gov.si")
+    #print(rs)
+    import visualization
+
+if __name__ == '__main1__':
 
     dtbs = dbHelper.New_dbHelper()
 
@@ -535,8 +516,8 @@ if __name__ == '__main__':
     min_loops = 10
     while (at_least_one_worker_active(workers) and len(dtbs.get_pages_to_fetch(5)) > 0) or min_loops > 0:
 
-        if frontier_q.qsize() < 50:
-            to_fetch = dtbs.get_pages_to_fetch(100)
+        if frontier_q.empty():
+            to_fetch = dtbs.get_pages_to_fetch(60)
             for page in to_fetch:
                 print('adding new node')
                 frontier_q.put(Node(urlparse(page[2]), page[0]))

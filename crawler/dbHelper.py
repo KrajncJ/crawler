@@ -9,7 +9,7 @@ class New_dbHelper:
     def connect(self):
         # Specifying the ODBC driver, server name, database, etc. directly
         driver = 'Devart ODBC Driver for PostgreSQL'
-        cnxn = pypyodbc.connect('DRIVER={' + driver + '};SERVER=192.168.99.100;PORT=5432;DATABASE=postgresDB;uid=userDB;pwd=postgres;')
+        cnxn = pypyodbc.connect('DRIVER={' + driver + '};SERVER=localhost;PORT=5431;DATABASE=postgresDB;uid=userDB;pwd=postgres;')
         return cnxn.cursor()
 
 
@@ -211,3 +211,13 @@ class New_dbHelper:
         # print([str(site_id), page_type_code, url, html_content, status_code, access_time, str(query_result[0][0])])
         self.cursor.execute(update_query,[str(page_id)])
         self.cursor.commit()
+
+    def get_links(self):
+        select_query = """
+                                  SELECT *
+                                  FROM "crawldb"."link" 
+                                  LIMIT 4000
+                                  """
+        self.cursor.execute(select_query)
+        query_result = self.cursor.fetchall()
+        return query_result

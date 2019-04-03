@@ -5,10 +5,18 @@ docker run -d --name ieps-database -e POSTGRES_USER=userDB -e POSTGRES_PASSWORD=
 ```
 ## 2. install odbc driver for windows
 https://www.devart.com/odbc/postgresql/docs/windows.htm
-## 3 download chromedriver and add it to PATH
+## 3. download chromedriver and add it to PATH
 http://chromedriver.chromium.org/
-## 4. report template
-https://docs.google.com/document/d/1-j9zZIcu9B0l54W6XUj4XFufuzZPqVHF5LMJyrMx-Cw/edit?usp=sharing
+## 4. install python libraries
+```sh 
+pip install requests
+```
+```sh 
+pip install selenium
+```
+```sh 
+pip install bs4
+```
 ## 5. after crawling
 to check docker container size:
 ```sh 
